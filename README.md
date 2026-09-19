@@ -28,13 +28,6 @@ go build -o cs3 ./cmd/cs3
 
 Site release zips: `make release` (output under `dist/`).
 
-## Trust notes
-
-- Talks to `https://ctrlshift3.com` over HTTPS.
-- API token lives in the OS keyring, not in this repo.
-- No art or poll compose. No analytics or telemetry.
-- Same account as the website and iOS app.
-
 ## Commands
 
 - `cs3` - interactive menu
