@@ -68,23 +68,23 @@ func New(baseURL, token string) *Client {
 }
 
 type User struct {
-	Username                  string `json:"username"`
-	UITheme                   string `json:"ui_theme"`
-	UIFont                    string `json:"ui_font"`
-	Timezone                  string `json:"timezone"`
-	Bio                       string `json:"bio"`
-	PreferredBodyColor        string `json:"preferred_body_color"`
-	SoundEnabled              bool   `json:"sound_enabled"`
-	AllowProfilePosts         bool   `json:"allow_profile_posts"`
-	BlockClickInvites         bool   `json:"block_click_invites"`
-	AllowPings                bool   `json:"allow_pings"`
-	AllowPostCommentPings     bool   `json:"allow_post_comment_pings"`
-	AllowCommentReplyPings    bool   `json:"allow_comment_reply_pings"`
-	EmailPingDigest           bool   `json:"email_ping_digest"`
-	HideBubbledPosts          bool   `json:"hide_bubbled_posts"`
-	FederateGlobal            bool   `json:"federate_global"`
-	UsernameChangeCount       int    `json:"username_change_count"`
-	UsernameChangesRemaining  int    `json:"username_changes_remaining"`
+	Username                 string `json:"username"`
+	UITheme                  string `json:"ui_theme"`
+	UIFont                   string `json:"ui_font"`
+	Timezone                 string `json:"timezone"`
+	Bio                      string `json:"bio"`
+	PreferredBodyColor       string `json:"preferred_body_color"`
+	SoundEnabled             bool   `json:"sound_enabled"`
+	AllowProfilePosts        bool   `json:"allow_profile_posts"`
+	BlockClickInvites        bool   `json:"block_click_invites"`
+	AllowPings               bool   `json:"allow_pings"`
+	AllowPostCommentPings    bool   `json:"allow_post_comment_pings"`
+	AllowCommentReplyPings   bool   `json:"allow_comment_reply_pings"`
+	EmailPingDigest          bool   `json:"email_ping_digest"`
+	HideBubbledPosts         bool   `json:"hide_bubbled_posts"`
+	FederateGlobal           bool   `json:"federate_global"`
+	UsernameChangeCount      int    `json:"username_change_count"`
+	UsernameChangesRemaining int    `json:"username_changes_remaining"`
 }
 
 type Pet struct {
@@ -137,12 +137,12 @@ type MyPostsPage struct {
 }
 
 type Comment struct {
-	ID              string `json:"id"`
-	Username        string `json:"username"`
-	Body            string `json:"body"`
-	CreatedAt       string `json:"created_at"`
-	Status          string `json:"status"`
-	WallQuoteCount  int    `json:"wall_quote_count"`
+	ID             string `json:"id"`
+	Username       string `json:"username"`
+	Body           string `json:"body"`
+	CreatedAt      string `json:"created_at"`
+	Status         string `json:"status"`
+	WallQuoteCount int    `json:"wall_quote_count"`
 }
 
 type Ping struct {
@@ -383,6 +383,33 @@ func (c *Client) Search(ctx context.Context, q string) (posts []Post, users []Se
 		return nil, nil, nil, &APIError{Status: 400, Message: resp.Error}
 	}
 	return resp.Posts, resp.Users, resp.Clicks, nil
+}
+
+func (c *Client) Click(ctx context.Context, slug string) (click Click, posts []Post, gate bool, hasMore bool, err error) {
+	slug = strings.TrimSpace(slug)
+	if slug == "" || strings.ContainsAny(slug, "/\\?") {
+		return Click{}, nil, false, false, fmt.Errorf("invalid click slug")
+	}
+	var resp struct {
+		OK      bool   `json:"ok"`
+		Error   string `json:"error"`
+		Click   Click  `json:"click"`
+		Posts   []Post `json:"posts"`
+		Gate    bool   `json:"gate"`
+		HasMore bool   `json:"has_more"`
+	}
+	path := "/api/v1/clicks/" + url.PathEscape(slug)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, true, &resp); err != nil {
+		return Click{}, nil, false, false, err
+	}
+	if !resp.OK {
+		msg := resp.Error
+		if msg == "" {
+			msg = "could not open Click"
+		}
+		return Click{}, nil, false, false, &APIError{Status: 400, Message: msg}
+	}
+	return resp.Click, resp.Posts, resp.Gate, resp.HasMore, nil
 }
 
 func (c *Client) ClickSearch(ctx context.Context, slug, q string, page int) ([]Post, bool, error) {

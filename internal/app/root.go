@@ -12,11 +12,11 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/spf13/cobra"
 	"github.com/zerosonesfun/cs3-cli/internal/api"
 	"github.com/zerosonesfun/cs3-cli/internal/auth"
 	"github.com/zerosonesfun/cs3-cli/internal/config"
 	"github.com/zerosonesfun/cs3-cli/internal/ui"
-	"github.com/spf13/cobra"
 )
 
 func NewRoot() *cobra.Command {
@@ -611,7 +611,7 @@ func showPings(ctx context.Context) error {
 			if p.ID > cfg.LastSeenPingID {
 				mark = "*"
 			}
-			ui.Printf("%d.%s %s\n   @%s · %s\n", i+1, mark, p.Summary, p.ActorUsername, p.CreatedAt)
+			printPingLine(i+1, mark, p)
 		}
 		if maxID > cfg.LastSeenPingID {
 			cfg.LastSeenPingID = maxID
@@ -654,6 +654,48 @@ func showPings(ctx context.Context) error {
 	}
 }
 
+func printPingLine(n int, mark string, p api.Ping) {
+	if p.Kind == "click_posts" {
+		ui.Printf("%d.%s %s\n   %s\n", n, mark, p.Summary, p.CreatedAt)
+		return
+	}
+	ui.Printf("%d.%s %s\n   @%s · %s\n", n, mark, p.Summary, p.ActorUsername, p.CreatedAt)
+}
+
+func printPastPingLine(n int, p api.Ping, when string) {
+	if p.Kind == "click_posts" {
+		ui.Printf("%d. %s\n   %s\n", n, p.Summary, when)
+		return
+	}
+	ui.Printf("%d. %s\n   @%s · %s\n", n, p.Summary, p.ActorUsername, when)
+}
+
+func showClickPosts(ctx context.Context, c *api.Client, slug string) error {
+	click, posts, gate, hasMore, err := c.Click(ctx, slug)
+	if err != nil {
+		return err
+	}
+	name := click.Name
+	if name == "" {
+		name = slug
+	}
+	ui.Println(name)
+	if gate {
+		ui.Println("You are not a member of this Click.")
+		return nil
+	}
+	if len(posts) == 0 {
+		ui.Println("No posts.")
+		return nil
+	}
+	printPosts(posts)
+	if hasMore {
+		ui.Println()
+		ui.Println("More posts in this Click.")
+	}
+	return nil
+}
+
 func openPing(ctx context.Context, c *api.Client, pings []api.Ping, ping api.Ping) (backToMenu bool, err error) {
 	dismissRelated := false
 	if relatedCommentCount(pings, ping) > 1 {
@@ -674,7 +716,9 @@ func openPing(ctx context.Context, c *api.Client, pings []api.Ping, ping api.Pin
 		}
 	case "click":
 		if target.Slug != "" {
-			ui.Printf("Opened Click %s.\n", target.Slug)
+			if err := showClickPosts(ctx, c, target.Slug); err != nil {
+				return false, err
+			}
 		}
 	case "url":
 		if target.URL != "" {
@@ -711,7 +755,7 @@ func showPastPings(ctx context.Context) error {
 			if when == "" {
 				when = p.CreatedAt
 			}
-			ui.Printf("%d. %s\n   @%s · %s\n", n, p.Summary, p.ActorUsername, when)
+			printPastPingLine(n, p, when)
 		}
 		if hasMore {
 			more, err := ui.Confirm("Load more")
@@ -801,7 +845,7 @@ func settingsGet() *cobra.Command {
 
 func settingsSet() *cobra.Command {
 	var (
-		theme, font, timezone, petName, username, password                                                   string
+		theme, font, timezone, petName, username, password                                                      string
 		sound, profilePosts, blockInvites, pings, postCommentPings, commentReplyPings, digest, hideBubbles, fed string
 	)
 	cmd := &cobra.Command{
