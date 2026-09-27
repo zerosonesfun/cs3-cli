@@ -297,6 +297,9 @@ func readThoughtBodyInner(current, defaultColor string, keepEmptyColor bool) (bo
 	if body == "" && current != "" {
 		body = current
 	}
+	if err := api.ValidateThoughtBody(body); err != nil {
+		return "", "", false, err
+	}
 	promptColor := strings.TrimSpace(defaultColor)
 	if promptColor == "" {
 		promptColor = "default"

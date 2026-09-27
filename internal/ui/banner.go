@@ -85,7 +85,8 @@ func ReadLine(prompt string) (string, error) {
 	return strings.TrimSpace(sc.Text()), nil
 }
 
-// ReadMultiline reads lines until a line equals endMarker (typically ".").
+// ReadMultiline reads lines until a line is only endMarker (typically ".").
+// Space around the marker still ends input; that line is not part of the body.
 // Trailing blank lines are trimmed; internal blank lines are kept.
 // EOF before the end marker is an error so a partial paste is not submitted.
 func ReadMultiline(endMarker string) (string, error) {
@@ -102,7 +103,7 @@ func ReadMultiline(endMarker string) (string, error) {
 			return "", fmt.Errorf("eof")
 		}
 		line := strings.TrimRight(sc.Text(), "\r")
-		if line == endMarker {
+		if lineEndsMultiline(line, endMarker) {
 			for len(lines) > 0 && lines[len(lines)-1] == "" {
 				lines = lines[:len(lines)-1]
 			}
@@ -110,6 +111,13 @@ func ReadMultiline(endMarker string) (string, error) {
 		}
 		lines = append(lines, line)
 	}
+}
+
+func lineEndsMultiline(line, endMarker string) bool {
+	if endMarker == "" {
+		endMarker = "."
+	}
+	return strings.TrimSpace(line) == endMarker
 }
 
 func ReadPassword(prompt string) (string, error) {

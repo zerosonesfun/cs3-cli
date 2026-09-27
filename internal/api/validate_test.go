@@ -12,6 +12,15 @@ func TestValidateCommentBody(t *testing.T) {
 	if err := ValidateCommentBody("   "); err == nil {
 		t.Fatal("whitespace comment should fail")
 	}
+	if err := ValidateCommentBody("."); err == nil {
+		t.Fatal("lone dot comment should fail")
+	}
+	if err := ValidateCommentBody(" \n.\n "); err == nil {
+		t.Fatal("dot surrounded by whitespace should fail")
+	}
+	if err := ValidateCommentBody("hello."); err != nil {
+		t.Fatalf("sentence ending in period: %v", err)
+	}
 	if err := ValidateCommentBody("hello"); err != nil {
 		t.Fatalf("short comment: %v", err)
 	}
@@ -26,6 +35,15 @@ func TestValidateCommentBody(t *testing.T) {
 	okLinks := "see https://a.example https://b.example https://c.example"
 	if err := ValidateCommentBody(okLinks); err != nil {
 		t.Fatalf("3 links: %v", err)
+	}
+}
+
+func TestValidateThoughtBodyRejectsLoneDot(t *testing.T) {
+	if err := ValidateThoughtBody("."); err == nil {
+		t.Fatal("lone dot post should fail")
+	}
+	if err := ValidateThoughtBody(".\nhello"); err != nil {
+		t.Fatalf("dot plus text: %v", err)
 	}
 }
 

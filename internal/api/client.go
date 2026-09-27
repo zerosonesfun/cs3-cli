@@ -617,7 +617,8 @@ func ValidateCommentBody(body string) error {
 }
 
 func validateBody(body string, maxLen int, what string) error {
-	if strings.TrimSpace(body) == "" {
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" || trimmed == "." {
 		return fmt.Errorf("write something first")
 	}
 	if utf8.RuneCountInString(body) > maxLen {
