@@ -256,6 +256,22 @@ func isBackCmd(s string) bool {
 	}
 }
 
+func printWritingPromptQuote(text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	ui.Printf("  | %s\n\n", text)
+}
+
+func printWritingPromptQuoteLine(text string, max int) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	ui.Printf("    | %s\n", ui.Truncate(text, max))
+}
+
 func isHelpCmd(s string) bool {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "2", "h", "help", "?":
@@ -347,11 +363,17 @@ func showPostThread(ctx context.Context, id string) (backToMenu bool, err error)
 		ui.Printf("\n%s", bubbleNotice)
 	}
 	if post.IsArt {
-		ui.Printf(" [art]\n%s\n\n", ui.FormatArt(post.Body, post.ArtColors, false))
+		ui.Printf(" [art]\n")
+		printWritingPromptQuote(post.WritingPromptText)
+		ui.Printf("%s\n\n", ui.FormatArt(post.Body, post.ArtColors, false))
 	} else if post.IsPoll {
-		ui.Printf(" [poll]\n%s\n\n", ui.Emojicon(post.Body))
+		ui.Printf(" [poll]\n")
+		printWritingPromptQuote(post.WritingPromptText)
+		ui.Printf("%s\n\n", ui.Emojicon(post.Body))
 	} else {
-		ui.Printf("\n%s\n\n", ui.Emojicon(post.Body))
+		ui.Printf("\n")
+		printWritingPromptQuote(post.WritingPromptText)
+		ui.Printf("%s\n\n", ui.Emojicon(post.Body))
 	}
 	if len(comments) == 0 {
 		ui.Println("(no comments)")
@@ -1421,6 +1443,7 @@ func printPosts(posts []api.Post) {
 		if p.IsBubbled {
 			ui.Printf("    %s\n", bubbleNotice)
 		}
+		printWritingPromptQuoteLine(p.WritingPromptText, 100)
 		ui.Printf("    %s\n", snippet)
 	}
 }

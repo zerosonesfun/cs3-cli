@@ -69,6 +69,15 @@ func composePost(ctx context.Context) error {
 		clickName = clicks[n-1].Name
 	}
 
+	promptReply := false
+	var promptText string
+	if dest == "1" {
+		if wp, err := c.WritingPrompt(ctx); err == nil && wp != nil && strings.TrimSpace(wp.Text) != "" {
+			promptText = strings.TrimSpace(wp.Text)
+			ui.Printf("Today's prompt: %s\n", promptText)
+		}
+	}
+
 	body, bodyColor, err := readThoughtBody("", me.PreferredBodyColor, false)
 	if err != nil {
 		return err
@@ -77,7 +86,19 @@ func composePost(ctx context.Context) error {
 		return err
 	}
 
-	ui.Printf("\nPreview (%s):\n%s\n\n", scopeLabel(dest, me.Username, clickName), body)
+	if promptText != "" {
+		ok, err := ui.Confirm("Prompt reply")
+		if err != nil {
+			return err
+		}
+		promptReply = ok
+	}
+
+	ui.Printf("\nPreview (%s):\n", scopeLabel(dest, me.Username, clickName))
+	if promptReply {
+		printWritingPromptQuote(promptText)
+	}
+	ui.Printf("%s\n\n", body)
 	ok, err := ui.Confirm("Post this")
 	if err != nil {
 		return err
@@ -91,7 +112,7 @@ func composePost(ctx context.Context) error {
 	var post api.Post
 	switch dest {
 	case "1":
-		post, err = c.CreateGlobalPost(ctx, body, bodyColor, key)
+		post, err = c.CreateGlobalPost(ctx, body, bodyColor, key, promptReply)
 	case "2":
 		post, err = c.CreateWallPost(ctx, me.Username, body, bodyColor, key)
 	case "3":
@@ -152,8 +173,10 @@ func showMyPostDetail(ctx context.Context, post api.Post) error {
 		ui.Printf("[%s]\n", kind)
 	}
 	if post.IsArt {
+		printWritingPromptQuote(post.WritingPromptText)
 		ui.Printf("%s\n", ui.FormatArt(post.Body, post.ArtColors, false))
 	} else {
+		printWritingPromptQuote(post.WritingPromptText)
 		ui.Printf("%s\n", ui.Emojicon(post.Body))
 	}
 	if post.CanEdit || post.CanDelete {
@@ -360,8 +383,10 @@ func printMyPosts(posts []api.Post) {
 		if p.IsArt {
 			snippet = ui.FormatArt(p.Body, p.ArtColors, true)
 		}
-		ui.Printf("%2d. %s%s · %s · %d comments · %s\n    %s\n",
-			i+1, prefix, postScopeLine(p), p.CreatedAt, p.CommentCount, p.ID, snippet)
+		ui.Printf("%2d. %s%s · %s · %d comments · %s\n",
+			i+1, prefix, postScopeLine(p), p.CreatedAt, p.CommentCount, p.ID)
+		printWritingPromptQuoteLine(p.WritingPromptText, 100)
+		ui.Printf("    %s\n", snippet)
 	}
 }
 

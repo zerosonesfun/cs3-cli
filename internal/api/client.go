@@ -117,6 +117,18 @@ type Post struct {
 	DeleteRequiresReason bool   `json:"delete_requires_reason"`
 	WallQuoteCount       int    `json:"wall_quote_count"`
 	IsBubbled            bool   `json:"is_bubbled"`
+	WritingPromptText    string `json:"writing_prompt_text"`
+}
+
+type WritingPrompt struct {
+	ID   int    `json:"id"`
+	Text string `json:"text"`
+}
+
+type WritingPromptResponse struct {
+	OK     bool            `json:"ok"`
+	Prompt *WritingPrompt  `json:"prompt"`
+	Error  string          `json:"error"`
 }
 
 type Click struct {
@@ -663,10 +675,24 @@ func NewIdempotencyKey() string {
 	return hex.EncodeToString(b)
 }
 
-func (c *Client) CreateGlobalPost(ctx context.Context, body, bodyColor, idempotencyKey string) (Post, error) {
+func (c *Client) WritingPrompt(ctx context.Context) (*WritingPrompt, error) {
+	var resp WritingPromptResponse
+	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/writing-prompt", nil, true, &resp); err != nil {
+		return nil, err
+	}
+	if !resp.OK {
+		return nil, &APIError{Status: 400, Message: resp.Error}
+	}
+	return resp.Prompt, nil
+}
+
+func (c *Client) CreateGlobalPost(ctx context.Context, body, bodyColor, idempotencyKey string, promptReply bool) (Post, error) {
 	payload := map[string]any{"body": body}
 	if bodyColor != "" {
 		payload["body_color"] = bodyColor
+	}
+	if promptReply {
+		payload["prompt_reply"] = true
 	}
 	return c.createPost(ctx, "/api/v1/posts", payload, idempotencyKey)
 }
