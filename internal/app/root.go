@@ -301,6 +301,7 @@ func printMenuHelp() {
 	ui.Println("  b     back")
 	ui.Println("  .     end a thought or comment")
 	ui.Println("  h / ? this help")
+	ui.Println("  p     answer today's writing prompt (when offered)")
 	ui.Println("  0 / q quit from the main menu")
 	ui.Println()
 	ui.Println("Also: cs3 quote @username")
@@ -1356,9 +1357,18 @@ func runMenu(ctx context.Context) error {
 			continue
 		}
 
+		promptRestorable := false
+		if c, err := client(true); err == nil {
+			if _, rest, err := c.WritingPromptState(ctx); err == nil && rest != nil && strings.TrimSpace(rest.Text) != "" {
+				promptRestorable = true
+			}
+		}
 		ui.Println("1) Latest feed")
 		ui.Println("2) Help")
 		ui.Println("3) Compose a thought")
+		if promptRestorable {
+			ui.Println("p) Answer today's prompt")
+		}
 		ui.Println("4) My posts")
 		ui.Println("5) My profile wall")
 		ui.Println("6) Pings")
@@ -1370,15 +1380,18 @@ func runMenu(ctx context.Context) error {
 		if err != nil || choice == "0" || choice == "q" || choice == "quit" {
 			return nil
 		}
+		choice = strings.TrimSpace(choice)
 		var runErr error
 		if isHelpCmd(choice) {
 			printMenuHelp()
 		} else {
-			switch choice {
+			switch strings.ToLower(choice) {
 			case "1":
 				runErr = browseLatestFeed(ctx)
 			case "3":
 				runErr = composePost(ctx)
+			case "p":
+				runErr = composeAnswerPrompt(ctx)
 			case "4":
 				runErr = showMine(ctx, true)
 			case "5":

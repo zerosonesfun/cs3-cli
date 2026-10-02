@@ -144,8 +144,21 @@ func Confirm(prompt string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	s = strings.ToLower(s)
+	s = strings.ToLower(strings.TrimSpace(s))
 	return s == "y" || s == "yes", nil
+}
+
+// ConfirmDefaultYes is like Confirm but Enter / empty means yes.
+func ConfirmDefaultYes(prompt string) (bool, error) {
+	s, err := ReadLine(prompt + " [Y/n]: ")
+	if err != nil {
+		return false, err
+	}
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" || s == "y" || s == "yes" {
+		return true, nil
+	}
+	return false, nil
 }
 
 func Truncate(s string, n int) string {

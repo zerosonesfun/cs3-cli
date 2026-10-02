@@ -126,9 +126,10 @@ type WritingPrompt struct {
 }
 
 type WritingPromptResponse struct {
-	OK     bool            `json:"ok"`
-	Prompt *WritingPrompt  `json:"prompt"`
-	Error  string          `json:"error"`
+	OK         bool           `json:"ok"`
+	Prompt     *WritingPrompt `json:"prompt"`
+	Restorable *WritingPrompt `json:"restorable"`
+	Error      string         `json:"error"`
 }
 
 type Click struct {
@@ -676,23 +677,29 @@ func NewIdempotencyKey() string {
 }
 
 func (c *Client) WritingPrompt(ctx context.Context) (*WritingPrompt, error) {
-	var resp WritingPromptResponse
-	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/writing-prompt", nil, true, &resp); err != nil {
-		return nil, err
-	}
-	if !resp.OK {
-		return nil, &APIError{Status: 400, Message: resp.Error}
-	}
-	return resp.Prompt, nil
+	auto, _, err := c.WritingPromptState(ctx)
+	return auto, err
 }
 
-func (c *Client) CreateGlobalPost(ctx context.Context, body, bodyColor, idempotencyKey string, promptReply bool) (Post, error) {
+func (c *Client) WritingPromptState(ctx context.Context) (auto *WritingPrompt, restorable *WritingPrompt, err error) {
+	var resp WritingPromptResponse
+	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/writing-prompt", nil, true, &resp); err != nil {
+		return nil, nil, err
+	}
+	if !resp.OK {
+		return nil, nil, &APIError{Status: 400, Message: resp.Error}
+	}
+	return resp.Prompt, resp.Restorable, nil
+}
+
+func (c *Client) CreateGlobalPost(ctx context.Context, body, bodyColor, idempotencyKey string, promptReply bool, promptID int) (Post, error) {
 	payload := map[string]any{"body": body}
 	if bodyColor != "" {
 		payload["body_color"] = bodyColor
 	}
-	if promptReply {
+	if promptReply && promptID > 0 {
 		payload["prompt_reply"] = true
+		payload["writing_prompt_id"] = promptID
 	}
 	return c.createPost(ctx, "/api/v1/posts", payload, idempotencyKey)
 }

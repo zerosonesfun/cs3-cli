@@ -71,10 +71,15 @@ func composePost(ctx context.Context) error {
 
 	promptReply := false
 	var promptText string
+	promptID := 0
 	if dest == "1" {
-		if wp, err := c.WritingPrompt(ctx); err == nil && wp != nil && strings.TrimSpace(wp.Text) != "" {
-			promptText = strings.TrimSpace(wp.Text)
+		auto, rest, err := c.WritingPromptState(ctx)
+		if err == nil && auto != nil && strings.TrimSpace(auto.Text) != "" {
+			promptText = strings.TrimSpace(auto.Text)
+			promptID = auto.ID
 			ui.Printf("Today's prompt: %s\n", promptText)
+		} else if err == nil && rest != nil && strings.TrimSpace(rest.Text) != "" {
+			ui.Println("Today's prompt is still available — choose p from the main menu to answer it.")
 		}
 	}
 
@@ -112,12 +117,71 @@ func composePost(ctx context.Context) error {
 	var post api.Post
 	switch dest {
 	case "1":
-		post, err = c.CreateGlobalPost(ctx, body, bodyColor, key, promptReply)
+		post, err = c.CreateGlobalPost(ctx, body, bodyColor, key, promptReply, promptID)
 	case "2":
 		post, err = c.CreateWallPost(ctx, me.Username, body, bodyColor, key)
 	case "3":
 		post, err = c.CreateClickPost(ctx, clickSlug, body, bodyColor, key)
 	}
+	if err != nil {
+		return formatErr(err)
+	}
+	ui.Printf("Posted · %s · %s\n", post.ID, post.CreatedAt)
+	return nil
+}
+
+// composeAnswerPrompt restores today's writing prompt after the user skipped Prompt reply.
+func composeAnswerPrompt(ctx context.Context) error {
+	c, err := client(true)
+	if err != nil {
+		return err
+	}
+	me, err := c.Me(ctx)
+	if err != nil {
+		return formatErr(err)
+	}
+	_, rest, err := c.WritingPromptState(ctx)
+	if err != nil {
+		return formatErr(err)
+	}
+	if rest == nil || strings.TrimSpace(rest.Text) == "" {
+		ui.Println("No prompt waiting. You already answered today, or it still appears under Compose.")
+		return nil
+	}
+	promptText := strings.TrimSpace(rest.Text)
+	promptID := rest.ID
+	ui.Printf("Today's prompt: %s\n", promptText)
+
+	body, bodyColor, err := readThoughtBody("", me.PreferredBodyColor, false)
+	if err != nil {
+		return err
+	}
+	if err := api.ValidateThoughtBody(body); err != nil {
+		return err
+	}
+
+	ok, err := ui.ConfirmDefaultYes("Prompt reply")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		ui.Println("Cancelled. Use Compose (3) for a normal thought.")
+		return nil
+	}
+
+	ui.Printf("\nPreview (main feed):\n")
+	printWritingPromptQuote(promptText)
+	ui.Printf("%s\n\n", body)
+	ok, err = ui.Confirm("Post this")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		ui.Println("Cancelled.")
+		return nil
+	}
+
+	post, err := c.CreateGlobalPost(ctx, body, bodyColor, api.NewIdempotencyKey(), true, promptID)
 	if err != nil {
 		return formatErr(err)
 	}
