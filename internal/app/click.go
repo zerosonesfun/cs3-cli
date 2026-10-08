@@ -7,17 +7,17 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/spf13/cobra"
 	"github.com/zerosonesfun/cs3-cli/internal/api"
 	"github.com/zerosonesfun/cs3-cli/internal/ui"
-	"github.com/spf13/cobra"
 )
 
 func cmdClick() *cobra.Command {
 	click := &cobra.Command{
 		Use:   "click",
-		Short: "Search and browse Clicks you belong to",
+		Short: "Search Clicks you belong to, or edit a description you own",
 	}
-	click.AddCommand(cmdClickSearch())
+	click.AddCommand(cmdClickSearch(), cmdClickDescription())
 	return click
 }
 
@@ -149,6 +149,97 @@ func showClickSearch(ctx context.Context, slug, q string) error {
 		}
 		return nil
 	}
+}
+
+func cmdClickDescription() *cobra.Command {
+	var set bool
+	cmd := &cobra.Command{
+		Use:   "description [slug]",
+		Short: "Show or replace a Click description",
+		Long: `Print a Click description, including line breaks.
+
+With --set, replace it. Type the new description and end with a line containing only .
+An empty description clears it. Only the Click owner can replace it.
+
+Examples:
+  cs3 click description night-writers
+  cs3 click description night-writers --set
+
+If slug is omitted, pick from your Clicks.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			slug := ""
+			if len(args) > 0 {
+				slug = strings.TrimSpace(args[0])
+			}
+			return runClickDescription(cmd.Context(), slug, set)
+		},
+	}
+	cmd.Flags().BoolVar(&set, "set", false, "Replace the description")
+	return cmd
+}
+
+func runClickDescription(ctx context.Context, slug string, set bool) error {
+	c, err := client(true)
+	if err != nil {
+		return err
+	}
+	if slug == "" {
+		picked, err := pickClickSlug(ctx, c)
+		if err != nil {
+			return err
+		}
+		slug = picked
+	}
+	if !set {
+		click, _, _, _, err := c.Click(ctx, slug)
+		if err != nil {
+			return formatErr(err)
+		}
+		if click.Description == "" {
+			ui.Println("No description.")
+			return nil
+		}
+		ui.Println(click.Description)
+		return nil
+	}
+	ui.Println("Description (end with a line containing only .). An empty description clears it.")
+	body, err := ui.ReadMultiline(".")
+	if err != nil {
+		return err
+	}
+	click, err := c.UpdateClickDescription(ctx, slug, body)
+	if err != nil {
+		return formatErr(err)
+	}
+	if click.Description == "" {
+		ui.Println("Description cleared.")
+		return nil
+	}
+	ui.Println("Description saved.")
+	return nil
+}
+
+func pickClickSlug(ctx context.Context, c *api.Client) (string, error) {
+	clicks, err := c.MyClicks(ctx)
+	if err != nil {
+		return "", formatErr(err)
+	}
+	if len(clicks) == 0 {
+		return "", fmt.Errorf("you are not in any Clicks")
+	}
+	for i, cl := range clicks {
+		ui.Printf("%2d. %s (/%s)\n", i+1, cl.Name, cl.Slug)
+	}
+	pick, err := ui.ReadLine("Click #: ")
+	if err != nil {
+		return "", err
+	}
+	n, err := parsePick(pick, len(clicks))
+	if err != nil {
+		return "", err
+	}
+	return clicks[n-1].Slug, nil
 }
 
 func parsePick(s string, max int) (int, error) {

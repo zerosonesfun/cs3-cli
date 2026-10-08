@@ -425,6 +425,47 @@ func (c *Client) Click(ctx context.Context, slug string) (click Click, posts []P
 	return resp.Click, resp.Posts, resp.Gate, resp.HasMore, nil
 }
 
+func normalizeClickDescription(description string) string {
+	description = strings.ReplaceAll(description, "\r\n", "\n")
+	description = strings.ReplaceAll(description, "\r", "\n")
+	description = strings.TrimRight(description, " \t\n\v\x00")
+	for strings.HasPrefix(description, "\n") {
+		description = strings.TrimPrefix(description, "\n")
+	}
+	if strings.Trim(description, " \n\r\t\v\x00") == "" {
+		return ""
+	}
+	return description
+}
+
+func (c *Client) UpdateClickDescription(ctx context.Context, slug, description string) (Click, error) {
+	slug = strings.TrimSpace(slug)
+	if slug == "" || strings.ContainsAny(slug, "/\\?") {
+		return Click{}, fmt.Errorf("invalid click slug")
+	}
+	description = normalizeClickDescription(description)
+	if utf8.RuneCountInString(description) > 500 {
+		return Click{}, fmt.Errorf("description is too long (max 500 characters)")
+	}
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+		Click Click  `json:"click"`
+	}
+	path := "/api/v1/clicks/" + url.PathEscape(slug) + "/description"
+	if err := c.doMutateJSON(ctx, http.MethodPost, path, map[string]any{"description": description}, "", &resp); err != nil {
+		return Click{}, err
+	}
+	if !resp.OK {
+		msg := resp.Error
+		if msg == "" {
+			msg = "could not update description"
+		}
+		return Click{}, &APIError{Status: 400, Message: msg}
+	}
+	return resp.Click, nil
+}
+
 func (c *Client) ClickSearch(ctx context.Context, slug, q string, page int) ([]Post, bool, error) {
 	slug = strings.TrimSpace(slug)
 	q = strings.TrimSpace(q)
