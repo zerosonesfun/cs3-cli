@@ -10,12 +10,14 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 	"github.com/zerosonesfun/cs3-cli/internal/api"
 	"github.com/zerosonesfun/cs3-cli/internal/auth"
 	"github.com/zerosonesfun/cs3-cli/internal/config"
+	"github.com/zerosonesfun/cs3-cli/internal/offline"
 	"github.com/zerosonesfun/cs3-cli/internal/ui"
 )
 
@@ -118,8 +120,8 @@ func clearString(s *string) {
 }
 
 func clearLocalSession() {
-	_ = auth.ClearToken()
 	cfg, err := config.Load()
+	_ = auth.ClearToken()
 	if err != nil {
 		return
 	}
@@ -132,6 +134,9 @@ func formatErr(err error) error {
 	if errors.As(err, &ae) && ae.Unauthorized() {
 		clearLocalSession()
 		return fmt.Errorf("%w — run: cs3 login", ae)
+	}
+	if offline.IsNetwork(err) {
+		return fmt.Errorf("a connection is required")
 	}
 	return err
 }
@@ -191,9 +196,9 @@ func browseLatestFeed(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	posts, err := c.Feed(ctx, 1)
+	posts, _, err := loadFeedPosts(ctx, c)
 	if err != nil {
-		return formatErr(err)
+		return err
 	}
 	if len(posts) == 0 {
 		ui.Println("No posts.")
@@ -217,9 +222,9 @@ func browseLatestFeed(ctx context.Context) error {
 				ui.Printf("Error: %v\n", err)
 				continue
 			}
-			posts, err = c.Feed(ctx, 1)
+			posts, _, err = loadFeedPosts(ctx, c)
 			if err != nil {
-				return formatErr(err)
+				return err
 			}
 			if len(posts) == 0 {
 				ui.Println("No posts.")
@@ -346,14 +351,60 @@ func cmdPost() *cobra.Command {
 	}
 }
 
+func loadFeedPosts(ctx context.Context, c *api.Client) ([]api.Post, bool, error) {
+	posts, err := c.Feed(ctx, 1)
+	user := localUsername()
+	if err != nil {
+		if offline.IsNetwork(err) {
+			if page, ok := offline.LoadFeed(user); ok {
+				ui.Println(offlineSavedLine(page.SavedAt))
+				return page.Posts, true, nil
+			}
+		}
+		return nil, false, formatErr(err)
+	}
+	offline.StoreFeed(user, posts)
+	return posts, false, nil
+}
+
+func localUsername() string {
+	cfg, err := config.Load()
+	if err != nil {
+		return ""
+	}
+	return cfg.Username
+}
+
+func offlineSavedLine(saved time.Time) string {
+	if saved.IsZero() {
+		return "Offline · saved"
+	}
+	return "Offline · saved " + saved.Local().Format("2006-01-02 15:04")
+}
+
 func showPostThread(ctx context.Context, id string) (backToMenu bool, err error) {
 	c, err := client(true)
 	if err != nil {
 		return false, err
 	}
+	readOnly := false
+	var partial bool
 	post, comments, err := c.Post(ctx, id)
+	user := localUsername()
 	if err != nil {
-		return false, formatErr(err)
+		if !offline.IsNetwork(err) {
+			return false, formatErr(err)
+		}
+		page, ok := offline.LoadThread(user, id)
+		if !ok {
+			return false, fmt.Errorf("this discussion is not on this device")
+		}
+		post, comments = page.Post, page.Comments
+		partial = page.Partial
+		readOnly = true
+		ui.Println(offlineSavedLine(page.SavedAt))
+	} else {
+		offline.StoreThread(user, post, comments)
 	}
 	meta := formatUsername(post.Username, post.WallQuoteCount)
 	if post.IsBubbled {
@@ -389,6 +440,13 @@ func showPostThread(ctx context.Context, id string) (backToMenu bool, err error)
 		}
 	}
 	ui.Println()
+	if readOnly {
+		if partial || post.CommentCount > len(comments) {
+			ui.Println("More comments need a connection.")
+		}
+		ui.Println("Commenting needs a connection.")
+		return waitForBack()
+	}
 	if post.Status != "" && post.Status != "visible" {
 		return waitForBack()
 	}
@@ -870,6 +928,8 @@ func settingsSet() *cobra.Command {
 	var (
 		theme, font, timezone, petName, username, password                                                      string
 		sound, profilePosts, blockInvites, pings, postCommentPings, commentReplyPings, digest, hideBubbles, fed string
+		offlineOn, offlineLimit, offlineThreads                                                                 string
+		offlineClear                                                                                            bool
 	)
 	cmd := &cobra.Command{
 		Use:   "set",
@@ -920,7 +980,18 @@ func settingsSet() *cobra.Command {
 					return fmt.Errorf("username is required")
 				}
 			}
+			localOffline := cmd.Flags().Changed("offline") || cmd.Flags().Changed("offline-limit") || cmd.Flags().Changed("offline-threads") || offlineClear
+			if localOffline {
+				if err := applyOfflineSettings(offlineOn, offlineLimit, offlineThreads, offlineClear, cmd.Flags().Changed("offline"), cmd.Flags().Changed("offline-limit"), cmd.Flags().Changed("offline-threads")); err != nil {
+					return err
+				}
+			}
 			if len(patch) == 0 && !hasPetName && !hasUsername {
+				if localOffline {
+					ui.Println("Saved on this device.")
+					printOfflinePrefs(localUsername())
+					return nil
+				}
 				return fmt.Errorf("pass at least one flag (see cs3 settings set -h)")
 			}
 			c, err := client(true)
@@ -1034,7 +1105,58 @@ func settingsSet() *cobra.Command {
 	cmd.Flags().StringVar(&petName, "pet-name", "", "companion name (max 24)")
 	cmd.Flags().StringVar(&username, "username", "", "new username (max 3 lifetime changes; prompts for password)")
 	cmd.Flags().StringVar(&password, "password", "", "current password (optional with --username; otherwise prompted)")
+	cmd.Flags().StringVar(&offlineOn, "offline", "", "on|off — store posts and comments on this device")
+	cmd.Flags().StringVar(&offlineLimit, "offline-limit", "", "5|10|20 — maximum cache size in MB")
+	cmd.Flags().StringVar(&offlineThreads, "offline-threads", "", "on|off — keep recently opened discussions")
+	cmd.Flags().BoolVar(&offlineClear, "offline-clear", false, "delete cached posts and comments on this device")
 	return cmd
+}
+
+func applyOfflineSettings(enabled, limit, threads string, clear, setEnabled, setLimit, setThreads bool) error {
+	user := localUsername()
+	if user == "" {
+		return fmt.Errorf("log in first")
+	}
+	prefs := offline.LoadPrefs(user)
+	if setEnabled {
+		on, err := parseOnOff(enabled)
+		if err != nil {
+			return fmt.Errorf("offline: %w", err)
+		}
+		prefs.Enabled = on
+	}
+	if setLimit {
+		n, err := strconv.Atoi(strings.TrimSpace(limit))
+		if err != nil || (n != 5 && n != 10 && n != 20) {
+			return fmt.Errorf("offline limit must be 5, 10, or 20")
+		}
+		prefs.LimitMB = n
+	}
+	if setThreads {
+		on, err := parseOnOff(threads)
+		if err != nil {
+			return fmt.Errorf("offline threads: %w", err)
+		}
+		prefs.KeepThreads = on
+	}
+	if err := offline.SavePrefs(user, prefs); err != nil {
+		return err
+	}
+	if clear {
+		return offline.ClearContent(user)
+	}
+	return nil
+}
+
+func printOfflinePrefs(username string) {
+	if username == "" {
+		return
+	}
+	prefs := offline.LoadPrefs(username)
+	ui.Println("Offline reading (this device):")
+	ui.Printf("  enabled:               %s\n", onOff(prefs.Enabled))
+	ui.Printf("  limit:                 %d MB\n", prefs.LimitMB)
+	ui.Printf("  keep discussions:      %s\n", onOff(prefs.KeepThreads))
 }
 
 func settingsInteractive(ctx context.Context) error {
@@ -1504,6 +1626,7 @@ func printSettings(u api.User, pet *api.Pet, petErr error) {
 	if petErr != nil {
 		ui.Printf("Warning: could not load pet name: %v\n", formatErr(petErr))
 	}
+	printOfflinePrefs(u.Username)
 }
 
 func fetchPetPeek(ctx context.Context, c *api.Client) (*api.Pet, error) {
