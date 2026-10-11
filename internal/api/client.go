@@ -81,6 +81,8 @@ type User struct {
 	AllowPostCommentPings    bool   `json:"allow_post_comment_pings"`
 	AllowCommentReplyPings   bool   `json:"allow_comment_reply_pings"`
 	EmailPingDigest          bool   `json:"email_ping_digest"`
+	EmailPingDigestIfAway    bool   `json:"email_ping_digest_if_away"`
+	PetDisabled              bool   `json:"pet_disabled"`
 	HideBubbledPosts         bool   `json:"hide_bubbled_posts"`
 	FederateGlobal           bool   `json:"federate_global"`
 	UsernameChangeCount      int    `json:"username_change_count"`

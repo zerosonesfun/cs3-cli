@@ -926,10 +926,10 @@ func settingsGet() *cobra.Command {
 
 func settingsSet() *cobra.Command {
 	var (
-		theme, font, timezone, petName, username, password                                                      string
-		sound, profilePosts, blockInvites, pings, postCommentPings, commentReplyPings, digest, hideBubbles, fed string
-		offlineOn, offlineLimit, offlineThreads                                                                 string
-		offlineClear                                                                                            bool
+		theme, font, timezone, petName, username, password                                                                               string
+		sound, profilePosts, blockInvites, pings, postCommentPings, commentReplyPings, digest, digestAway, hideBubbles, fed, petDisabled string
+		offlineOn, offlineLimit, offlineThreads                                                                                          string
+		offlineClear                                                                                                                     bool
 	)
 	cmd := &cobra.Command{
 		Use:   "set",
@@ -953,6 +953,8 @@ func settingsSet() *cobra.Command {
 				"allow_post_comment_pings":  &postCommentPings,
 				"allow_comment_reply_pings": &commentReplyPings,
 				"email_ping_digest":         &digest,
+				"email_ping_digest_if_away": &digestAway,
+				"pet_disabled":              &petDisabled,
 				"hide_bubbled_posts":        &hideBubbles,
 				"federate_global":           &fed,
 			}
@@ -1100,6 +1102,8 @@ func settingsSet() *cobra.Command {
 	cmd.Flags().StringVar(&postCommentPings, "post-comment-pings", "", "on|off - pings when someone comments on your posts")
 	cmd.Flags().StringVar(&commentReplyPings, "comment-reply-pings", "", "on|off - pings when someone comments after you")
 	cmd.Flags().StringVar(&digest, "email-digest", "", "on|off - daily unread ping email")
+	cmd.Flags().StringVar(&digestAway, "email-ping-digest-if-away", "", "on|off - send the digest only after more than 2 days away")
+	cmd.Flags().StringVar(&petDisabled, "pet-disabled", "", "on|off - hide your pet")
 	cmd.Flags().StringVar(&hideBubbles, "hide-bubbles", "", "on|off - hide bubbled posts from main feed")
 	cmd.Flags().StringVar(&fed, "federate", "", "on|off - send main feed to Fediverse")
 	cmd.Flags().StringVar(&petName, "pet-name", "", "companion name (max 24)")
@@ -1186,6 +1190,8 @@ func settingsInteractive(ctx context.Context) error {
 	ui.Println("12) Toggle Fediverse sharing")
 	ui.Println("13) Pet name")
 	ui.Println("14) Change username (max 3 times)")
+	ui.Println("15) Toggle digest only if away more than 2 days")
+	ui.Println("16) Toggle disable pet")
 	ui.Println("0) Back")
 	choice, err := ui.ReadLine("Choice: ")
 	if err != nil || choice == "" || choice == "0" {
@@ -1245,6 +1251,10 @@ func settingsInteractive(ctx context.Context) error {
 		patch["email_ping_digest"] = !u.EmailPingDigest
 	case "12":
 		patch["federate_global"] = !u.FederateGlobal
+	case "15":
+		patch["email_ping_digest_if_away"] = !u.EmailPingDigestIfAway
+	case "16":
+		patch["pet_disabled"] = !u.PetDisabled
 	default:
 		return fmt.Errorf("unknown choice")
 	}
@@ -1405,7 +1415,10 @@ func copyFileAtomic(src, dest string, mode os.FileMode) error {
 	return nil
 }
 
-func printPet(ctx context.Context, c *api.Client) {
+func printPet(ctx context.Context, c *api.Client, disabled bool) {
+	if disabled {
+		return
+	}
 	p, err := c.Pet(ctx)
 	if err != nil || p.Face == "" {
 		return
@@ -1418,6 +1431,9 @@ func printPet(ctx context.Context, c *api.Client) {
 		line += "  (" + p.Mood + ")"
 	}
 	ui.Println(line)
+	if p.Mood == "sleep" {
+		ui.Println("Z z z")
+	}
 	if p.Speech != nil {
 		speech := strings.TrimSpace(*p.Speech)
 		if speech != "" {
@@ -1443,7 +1459,7 @@ func runMenu(ctx context.Context) error {
 		if c, err := client(true); err == nil {
 			if u, err := c.Me(ctx); err == nil {
 				ui.Printf("Signed in as @%s\n", u.Username)
-				printPet(ctx, c)
+				printPet(ctx, c, u.PetDisabled)
 			} else {
 				ui.Println("Session expired or invalid — please log in again.")
 				clearLocalSession()
@@ -1621,8 +1637,10 @@ func printSettings(u api.User, pet *api.Pet, petErr error) {
 	ui.Printf("  post comment pings:    %s\n", onOff(u.AllowPostCommentPings))
 	ui.Printf("  comment reply pings:   %s\n", onOff(u.AllowCommentReplyPings))
 	ui.Printf("  email ping digest:     %s\n", onOff(u.EmailPingDigest))
+	ui.Printf("  digest if away:        %s\n", onOff(u.EmailPingDigestIfAway))
 	ui.Printf("  federate global:       %s\n", onOff(u.FederateGlobal))
 	ui.Printf("  pet name:              %s\n", formatPetName(pet, petErr))
+	ui.Printf("  pet disabled:          %s\n", onOff(u.PetDisabled))
 	if petErr != nil {
 		ui.Printf("Warning: could not load pet name: %v\n", formatErr(petErr))
 	}
