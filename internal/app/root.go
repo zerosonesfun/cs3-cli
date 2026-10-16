@@ -297,7 +297,7 @@ func printMenuHelp() {
 	ui.Println()
 	ui.Println("Pings: type a ping number to open it (moves to Past).")
 	ui.Println("  cs3 pings past — opened archive; c clears all past.")
-	ui.Println("  Related comment pings for the same post can be dismissed together.")
+	ui.Println("  Related comment and mention pings for the same post can be dismissed together.")
 	ui.Println()
 	ui.Println("Thoughts: same . to finish, then confirm. Art and polls are read-only.")
 	ui.Println("Up to 3 links per thought or comment.")
@@ -608,22 +608,27 @@ func cmdPings() *cobra.Command {
 	}
 }
 
-func isCommentPingKind(kind string) bool {
-	switch strings.ToLower(strings.TrimSpace(kind)) {
+func isRelatedPing(p api.Ping) bool {
+	if strings.TrimSpace(p.PostID) == "" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(p.Kind)) {
 	case "post_comment", "comment_reply":
 		return true
+	case "mention":
+		return strings.TrimSpace(p.CommentID) != ""
 	default:
 		return false
 	}
 }
 
 func relatedCommentCount(pings []api.Ping, ping api.Ping) int {
-	if !isCommentPingKind(ping.Kind) || ping.PostID == "" {
+	if !isRelatedPing(ping) {
 		return 0
 	}
 	n := 0
 	for _, p := range pings {
-		if isCommentPingKind(p.Kind) && p.PostID == ping.PostID {
+		if isRelatedPing(p) && p.PostID == ping.PostID {
 			n++
 		}
 	}
@@ -735,20 +740,29 @@ func showPings(ctx context.Context) error {
 	}
 }
 
+func pingSummary(p api.Ping) string {
+	if p.Kind == "mention" {
+		return "\x1b[1m" + p.Summary + "\x1b[0m"
+	}
+	return p.Summary
+}
+
 func printPingLine(n int, mark string, p api.Ping) {
+	summary := pingSummary(p)
 	if p.Kind == "click_posts" {
-		ui.Printf("%d.%s %s\n   %s\n", n, mark, p.Summary, p.CreatedAt)
+		ui.Printf("%d.%s %s\n   %s\n", n, mark, summary, p.CreatedAt)
 		return
 	}
-	ui.Printf("%d.%s %s\n   @%s · %s\n", n, mark, p.Summary, p.ActorUsername, p.CreatedAt)
+	ui.Printf("%d.%s %s\n   @%s · %s\n", n, mark, summary, p.ActorUsername, p.CreatedAt)
 }
 
 func printPastPingLine(n int, p api.Ping, when string) {
+	summary := pingSummary(p)
 	if p.Kind == "click_posts" {
-		ui.Printf("%d. %s\n   %s\n", n, p.Summary, when)
+		ui.Printf("%d. %s\n   %s\n", n, summary, when)
 		return
 	}
-	ui.Printf("%d. %s\n   @%s · %s\n", n, p.Summary, p.ActorUsername, when)
+	ui.Printf("%d. %s\n   @%s · %s\n", n, summary, p.ActorUsername, when)
 }
 
 func showClickPosts(ctx context.Context, c *api.Client, slug string) error {
@@ -780,7 +794,7 @@ func showClickPosts(ctx context.Context, c *api.Client, slug string) error {
 func openPing(ctx context.Context, c *api.Client, pings []api.Ping, ping api.Ping) (backToMenu bool, err error) {
 	dismissRelated := false
 	if relatedCommentCount(pings, ping) > 1 {
-		ok, err := ui.Confirm("There are multiple comment pings related to this post. Go ahead and dismiss all related pings since you're going there now?")
+		ok, err := ui.Confirm("There are multiple pings related to this post. Go ahead and dismiss all related pings since you're going there now?")
 		if err != nil {
 			return false, err
 		}
