@@ -40,6 +40,7 @@ func NewRoot() *cobra.Command {
 		cmdMine(),
 		cmdWall(),
 		cmdQuote(),
+		cmdBits(),
 		cmdPings(),
 		cmdSearch(),
 		cmdClick(),
@@ -310,6 +311,7 @@ func printMenuHelp() {
 	ui.Println("  0 / q quit from the main menu")
 	ui.Println()
 	ui.Println("Also: cs3 quote @username")
+	ui.Println("      cs3 bits [@user] · cs3 bits --months [--before=YYYY-MM]")
 	ui.Println("Log out ends this CLI session. Quit does not.")
 }
 

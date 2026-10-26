@@ -520,6 +520,105 @@ func (c *Client) Post(ctx context.Context, id string) (Post, []Comment, error) {
 	return resp.Post, resp.Comments, nil
 }
 
+type BitCell struct {
+	Char  string `json:"char"`
+	Class string `json:"class"`
+	Index int    `json:"index"`
+}
+
+type BitsMonth struct {
+	Yyyymm string    `json:"yyyymm"`
+	Label  string    `json:"label"`
+	Earned int       `json:"earned"`
+	Cells  []BitCell `json:"cells"`
+	Hidden int       `json:"hidden"`
+}
+
+type BitsAll struct {
+	Count  int
+	Cells  []BitCell
+	Hidden int
+}
+
+type BitsMonths struct {
+	Count        int
+	Months       []BitsMonth
+	HasOlder     bool
+	HasNewer     bool
+	OlderCursor  string
+	NewerCursor  string
+}
+
+func (c *Client) Bits(ctx context.Context, username string) (BitsAll, error) {
+	username = strings.TrimSpace(username)
+	username = strings.TrimPrefix(username, "@")
+	if username == "" || strings.ContainsAny(username, "/\\?") {
+		return BitsAll{}, fmt.Errorf("invalid username")
+	}
+	var resp struct {
+		OK         bool      `json:"ok"`
+		Error      string    `json:"error"`
+		BitsCount  int       `json:"bits_count"`
+		Cells      []BitCell `json:"cells"`
+		BitsHidden int       `json:"bits_hidden"`
+	}
+	path := "/api/v1/users/" + url.PathEscape(username) + "/bits"
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, true, &resp); err != nil {
+		return BitsAll{}, err
+	}
+	if !resp.OK {
+		msg := resp.Error
+		if msg == "" {
+			msg = "bits unavailable"
+		}
+		return BitsAll{}, &APIError{Status: 404, Message: msg}
+	}
+	return BitsAll{Count: resp.BitsCount, Cells: resp.Cells, Hidden: resp.BitsHidden}, nil
+}
+
+func (c *Client) BitsMonths(ctx context.Context, username, cursor string) (BitsMonths, error) {
+	username = strings.TrimSpace(username)
+	username = strings.TrimPrefix(username, "@")
+	if username == "" || strings.ContainsAny(username, "/\\?") {
+		return BitsMonths{}, fmt.Errorf("invalid username")
+	}
+	var resp struct {
+		OK          bool        `json:"ok"`
+		Error       string      `json:"error"`
+		BitsCount   int         `json:"bits_count"`
+		Months      []BitsMonth `json:"months"`
+		HasOlder    bool        `json:"has_older"`
+		HasNewer    bool        `json:"has_newer"`
+		OlderCursor string      `json:"older_cursor"`
+		NewerCursor string      `json:"newer_cursor"`
+	}
+	q := url.Values{}
+	q.Set("view", "months")
+	cursor = strings.TrimSpace(cursor)
+	if cursor != "" {
+		q.Set("cursor", cursor)
+	}
+	path := "/api/v1/users/" + url.PathEscape(username) + "/bits?" + q.Encode()
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, true, &resp); err != nil {
+		return BitsMonths{}, err
+	}
+	if !resp.OK {
+		msg := resp.Error
+		if msg == "" {
+			msg = "bits unavailable"
+		}
+		return BitsMonths{}, &APIError{Status: 404, Message: msg}
+	}
+	return BitsMonths{
+		Count:       resp.BitsCount,
+		Months:      resp.Months,
+		HasOlder:    resp.HasOlder,
+		HasNewer:    resp.HasNewer,
+		OlderCursor: resp.OlderCursor,
+		NewerCursor: resp.NewerCursor,
+	}, nil
+}
+
 func (c *Client) WallQuote(ctx context.Context, username string) (int, error) {
 	username = strings.TrimSpace(username)
 	username = strings.TrimPrefix(username, "@")
