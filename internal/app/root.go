@@ -318,7 +318,8 @@ func printMenuHelp() {
 func cmdPost() *cobra.Command {
 	// Manual dispatcher so `cs3 post <id>` works alongside create/edit/delete.
 	// Cobra treats unknown first args as missing subcommands when AddCommand is used.
-	return &cobra.Command{
+	var noToot bool
+	cmd := &cobra.Command{
 		Use:   "post [create|edit|delete|<id>]",
 		Short: "Show, create, edit, or delete posts",
 		Args:  cobra.ArbitraryArgs,
@@ -329,9 +330,9 @@ func cmdPost() *cobra.Command {
 			switch args[0] {
 			case "create":
 				if len(args) != 1 {
-					return fmt.Errorf("usage: cs3 post create")
+					return fmt.Errorf("usage: cs3 post create [--no-toot]")
 				}
-				return composePost(cmd.Context())
+				return composePost(cmd.Context(), !noToot)
 			case "edit":
 				if len(args) != 2 {
 					return fmt.Errorf("usage: cs3 post edit <id>")
@@ -351,6 +352,8 @@ func cmdPost() *cobra.Command {
 			}
 		},
 	}
+	cmd.Flags().BoolVar(&noToot, "no-toot", false, "keep this post on this site only (skip Fediverse share)")
+	return cmd
 }
 
 func loadFeedPosts(ctx context.Context, c *api.Client) ([]api.Post, bool, error) {
@@ -1739,7 +1742,7 @@ func runMenu(ctx context.Context) error {
 			case "1":
 				runErr = browseLatestFeed(ctx)
 			case "3":
-				runErr = composePost(ctx)
+				runErr = composePost(ctx, true)
 			case "p":
 				runErr = composeAnswerPrompt(ctx)
 			case "4":

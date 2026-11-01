@@ -907,7 +907,7 @@ func (c *Client) WritingPromptState(ctx context.Context) (auto *WritingPrompt, r
 	return resp.Prompt, resp.Restorable, nil
 }
 
-func (c *Client) CreateGlobalPost(ctx context.Context, body, bodyColor, idempotencyKey string, promptReply bool, promptID int) (Post, error) {
+func (c *Client) CreateGlobalPost(ctx context.Context, body, bodyColor, idempotencyKey string, promptReply bool, promptID int, toot bool) (Post, error) {
 	payload := map[string]any{"body": body}
 	if bodyColor != "" {
 		payload["body_color"] = bodyColor
@@ -916,10 +916,13 @@ func (c *Client) CreateGlobalPost(ctx context.Context, body, bodyColor, idempote
 		payload["prompt_reply"] = true
 		payload["writing_prompt_id"] = promptID
 	}
+	if !toot {
+		payload["toot"] = false
+	}
 	return c.createPost(ctx, "/api/v1/posts", payload, idempotencyKey)
 }
 
-func (c *Client) CreateWallPost(ctx context.Context, username, body, bodyColor, idempotencyKey string) (Post, error) {
+func (c *Client) CreateWallPost(ctx context.Context, username, body, bodyColor, idempotencyKey string, toot bool) (Post, error) {
 	username = strings.TrimSpace(username)
 	if username == "" || strings.ContainsAny(username, "/\\?") {
 		return Post{}, fmt.Errorf("invalid username")
@@ -927,6 +930,9 @@ func (c *Client) CreateWallPost(ctx context.Context, username, body, bodyColor, 
 	payload := map[string]any{"body": body}
 	if bodyColor != "" {
 		payload["body_color"] = bodyColor
+	}
+	if !toot {
+		payload["toot"] = false
 	}
 	path := "/api/v1/users/" + url.PathEscape(username) + "/wall"
 	return c.createPost(ctx, path, payload, idempotencyKey)

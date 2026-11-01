@@ -21,7 +21,7 @@ func cmdMine() *cobra.Command {
 	}
 }
 
-func composePost(ctx context.Context) error {
+func composePost(ctx context.Context, tootDefault bool) error {
 	c, err := client(true)
 	if err != nil {
 		return err
@@ -99,6 +99,20 @@ func composePost(ctx context.Context) error {
 		promptReply = ok
 	}
 
+	toot := true
+	canToot := me.FederateGlobal && (dest == "1" || dest == "2")
+	if canToot {
+		if !tootDefault {
+			toot = false
+		} else {
+			ok, err := ui.ConfirmDefaultYes("Toot too")
+			if err != nil {
+				return err
+			}
+			toot = ok
+		}
+	}
+
 	ui.Printf("\nPreview (%s):\n", scopeLabel(dest, me.Username, clickName))
 	if promptReply {
 		printWritingPromptQuote(promptText)
@@ -117,9 +131,9 @@ func composePost(ctx context.Context) error {
 	var post api.Post
 	switch dest {
 	case "1":
-		post, err = c.CreateGlobalPost(ctx, body, bodyColor, key, promptReply, promptID)
+		post, err = c.CreateGlobalPost(ctx, body, bodyColor, key, promptReply, promptID, toot)
 	case "2":
-		post, err = c.CreateWallPost(ctx, me.Username, body, bodyColor, key)
+		post, err = c.CreateWallPost(ctx, me.Username, body, bodyColor, key, toot)
 	case "3":
 		post, err = c.CreateClickPost(ctx, clickSlug, body, bodyColor, key)
 	}
@@ -169,6 +183,15 @@ func composeAnswerPrompt(ctx context.Context) error {
 		return nil
 	}
 
+	toot := true
+	if me.FederateGlobal {
+		ok, err = ui.ConfirmDefaultYes("Toot too")
+		if err != nil {
+			return err
+		}
+		toot = ok
+	}
+
 	ui.Printf("\nPreview (main feed):\n")
 	printWritingPromptQuote(promptText)
 	ui.Printf("%s\n\n", body)
@@ -181,7 +204,7 @@ func composeAnswerPrompt(ctx context.Context) error {
 		return nil
 	}
 
-	post, err := c.CreateGlobalPost(ctx, body, bodyColor, api.NewIdempotencyKey(), true, promptID)
+	post, err := c.CreateGlobalPost(ctx, body, bodyColor, api.NewIdempotencyKey(), true, promptID, toot)
 	if err != nil {
 		return formatErr(err)
 	}
