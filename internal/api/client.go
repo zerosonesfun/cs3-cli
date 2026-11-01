@@ -83,10 +83,17 @@ type User struct {
 	EmailPingDigest          bool   `json:"email_ping_digest"`
 	EmailPingDigestIfAway    bool   `json:"email_ping_digest_if_away"`
 	PetDisabled              bool   `json:"pet_disabled"`
-	HideBubbledPosts         bool   `json:"hide_bubbled_posts"`
-	FederateGlobal           bool   `json:"federate_global"`
-	UsernameChangeCount      int    `json:"username_change_count"`
-	UsernameChangesRemaining int    `json:"username_changes_remaining"`
+	HideBubbledPosts         bool             `json:"hide_bubbled_posts"`
+	FederateGlobal           bool             `json:"federate_global"`
+	FederateDestination      string           `json:"federate_destination"`
+	Mastodon                 *MastodonAccount `json:"mastodon"`
+	UsernameChangeCount      int              `json:"username_change_count"`
+	UsernameChangesRemaining int              `json:"username_changes_remaining"`
+}
+
+type MastodonAccount struct {
+	Host     string `json:"host"`
+	Username string `json:"username"`
 }
 
 type Pet struct {
@@ -337,6 +344,71 @@ func (c *Client) UpdateSettings(ctx context.Context, patch map[string]any) (User
 		return User{}, nil, &APIError{Status: 400, Message: resp.Error}
 	}
 	return resp.User, resp.Warnings, nil
+}
+
+func (c *Client) MastodonStart(ctx context.Context, host, username string) (string, error) {
+	body := map[string]any{"host": host, "client": "cli"}
+	if strings.TrimSpace(username) != "" {
+		body["username"] = strings.TrimSpace(username)
+	}
+	var resp struct {
+		OK           bool   `json:"ok"`
+		Error        string `json:"error"`
+		AuthorizeURL string `json:"authorize_url"`
+	}
+	if err := c.doJSON(ctx, http.MethodPost, "/api/v1/me/fediverse/mastodon/start", body, true, &resp); err != nil {
+		return "", err
+	}
+	if !resp.OK {
+		msg := resp.Error
+		if msg == "" {
+			msg = "could not start Mastodon connect"
+		}
+		return "", &APIError{Status: 422, Message: msg}
+	}
+	if strings.TrimSpace(resp.AuthorizeURL) == "" {
+		return "", &APIError{Status: 422, Message: "Mastodon authorize URL missing"}
+	}
+	return resp.AuthorizeURL, nil
+}
+
+func (c *Client) MastodonDisconnect(ctx context.Context) (User, error) {
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+		User  User   `json:"user"`
+	}
+	if err := c.doJSON(ctx, http.MethodPost, "/api/v1/me/fediverse/mastodon/disconnect", map[string]any{}, true, &resp); err != nil {
+		return User{}, err
+	}
+	if !resp.OK {
+		msg := resp.Error
+		if msg == "" {
+			msg = "could not disconnect Mastodon"
+		}
+		return User{}, &APIError{Status: 400, Message: msg}
+	}
+	return resp.User, nil
+}
+
+func (c *Client) MastodonFinish(ctx context.Context, code string) (User, error) {
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+		User  User   `json:"user"`
+	}
+	body := map[string]any{"finish": strings.TrimSpace(code)}
+	if err := c.doJSON(ctx, http.MethodPost, "/api/v1/me/fediverse/mastodon/finish", body, true, &resp); err != nil {
+		return User{}, err
+	}
+	if !resp.OK {
+		msg := resp.Error
+		if msg == "" {
+			msg = "could not finish Mastodon connect"
+		}
+		return User{}, &APIError{Status: 422, Message: msg}
+	}
+	return resp.User, nil
 }
 
 func (c *Client) UpdateUsername(ctx context.Context, username, password string) (User, error) {

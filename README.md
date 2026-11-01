@@ -43,7 +43,8 @@ Site release zips: `make release` (output under `dist/`).
 - `cs3 pings` / `cs3 pings past` - inbox and opened pings
 - `cs3 search ...` - global search (posts, people, Clicks)
 - `cs3 click search [slug] [query...]` - search posts inside one Click you belong to
-- `cs3 settings` / `cs3 settings get` / `cs3 settings set ...` - account prefs
+- `cs3 settings` / `cs3 settings get` / `cs3 settings set ...` - account prefs (incl. `--federate`, `--federate-destination`)
+- `cs3 settings federate mastodon --host …` / `cs3 settings federate disconnect` - Mastodon OAuth destination
 - `cs3 install-path` - install a copy for PATH
 
 Comments are multi-line. Finish with a line containing only `.`. Skip with `b` then `.` where prompted.

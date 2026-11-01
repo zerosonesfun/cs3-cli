@@ -124,6 +124,9 @@ cs3 settings set ...
     cs3 settings set --theme dark --sound on
     cs3 settings set --hide-bubbles on
     cs3 settings set --federate off
+    cs3 settings set --federate-destination cs3
+    cs3 settings federate mastodon --host mastodon.social
+    cs3 settings federate disconnect
     cs3 settings set --pet-name "Mochi"
     cs3 settings set --username NewName
 

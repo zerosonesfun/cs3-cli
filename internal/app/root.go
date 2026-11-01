@@ -917,8 +917,128 @@ func cmdSettings() *cobra.Command {
 	cmd.AddCommand(
 		settingsGet(),
 		settingsSet(),
+		settingsFederate(),
 	)
 	return cmd
+}
+
+func settingsFederate() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "federate",
+		Short: "Fediverse destination and Mastodon connect",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client(true)
+			if err != nil {
+				return err
+			}
+			u, err := c.Me(cmd.Context())
+			if err != nil {
+				return formatErr(err)
+			}
+			printFederate(u)
+			return nil
+		},
+	}
+	cmd.AddCommand(settingsFederateMastodon(), settingsFederateFinish(), settingsFederateDisconnect())
+	return cmd
+}
+
+func settingsFederateMastodon() *cobra.Command {
+	var host, username string
+	cmd := &cobra.Command{
+		Use:   "mastodon",
+		Short: "Start Mastodon OAuth (prints authorize URL)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			host = strings.TrimSpace(host)
+			if host == "" {
+				return fmt.Errorf("--host is required (e.g. mastodon.social)")
+			}
+			c, err := client(true)
+			if err != nil {
+				return err
+			}
+			url, err := c.MastodonStart(cmd.Context(), host, username)
+			if err != nil {
+				return formatErr(err)
+			}
+			ui.Println("Open this URL in a browser, authorize, then run: cs3 settings federate finish --code …")
+			ui.Println("(the browser page shows the finish code)")
+			ui.Println(url)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&host, "host", "", "Mastodon server hostname")
+	cmd.Flags().StringVar(&username, "username", "", "expected username on that server (optional)")
+	return cmd
+}
+
+func settingsFederateFinish() *cobra.Command {
+	var code string
+	cmd := &cobra.Command{
+		Use:   "finish",
+		Short: "Attach a Mastodon OAuth that finished in the browser",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			code = strings.TrimSpace(code)
+			if code == "" {
+				var err error
+				code, err = ui.ReadLine("Finish code from the browser page: ")
+				if err != nil {
+					return err
+				}
+				code = strings.TrimSpace(code)
+			}
+			if code == "" {
+				return fmt.Errorf("--code is required (from the browser page after authorize)")
+			}
+			c, err := client(true)
+			if err != nil {
+				return err
+			}
+			u, err := c.MastodonFinish(cmd.Context(), code)
+			if err != nil {
+				return formatErr(err)
+			}
+			ui.Println("Mastodon connected.")
+			printFederate(u)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&code, "code", "", "one-time finish code from the browser page")
+	return cmd
+}
+
+func settingsFederateDisconnect() *cobra.Command {
+	return &cobra.Command{
+		Use:   "disconnect",
+		Short: "Disconnect Mastodon and turn Fediverse sharing off",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client(true)
+			if err != nil {
+				return err
+			}
+			u, err := c.MastodonDisconnect(cmd.Context())
+			if err != nil {
+				return formatErr(err)
+			}
+			ui.Println("Disconnected.")
+			printFederate(u)
+			return nil
+		},
+	}
+}
+
+func printFederate(u api.User) {
+	ui.Printf("  federate:              %s\n", onOff(u.FederateGlobal))
+	dest := strings.ToLower(strings.TrimSpace(u.FederateDestination))
+	if dest != "mastodon" {
+		dest = "cs3"
+	}
+	ui.Printf("  destination:           %s\n", dest)
+	if u.Mastodon != nil && u.Mastodon.Host != "" && u.Mastodon.Username != "" {
+		ui.Printf("  mastodon:              @%s@%s\n", u.Mastodon.Username, u.Mastodon.Host)
+	} else {
+		ui.Println("  mastodon:              (not connected)")
+	}
 }
 
 func settingsGet() *cobra.Command {
@@ -942,7 +1062,7 @@ func settingsGet() *cobra.Command {
 
 func settingsSet() *cobra.Command {
 	var (
-		theme, font, timezone, petName, username, password                                                                               string
+		theme, font, timezone, petName, username, password, federateDest                                                                 string
 		sound, profilePosts, blockInvites, pings, postCommentPings, commentReplyPings, digest, digestAway, hideBubbles, fed, petDisabled string
 		offlineOn, offlineLimit, offlineThreads                                                                                          string
 		offlineClear                                                                                                                     bool
@@ -983,6 +1103,13 @@ func settingsSet() *cobra.Command {
 					return fmt.Errorf("%s: %w", k, err)
 				}
 				patch[k] = v
+			}
+			if federateDest != "" {
+				d := strings.ToLower(strings.TrimSpace(federateDest))
+				if d != "cs3" && d != "mastodon" {
+					return fmt.Errorf("federate-destination must be cs3 or mastodon")
+				}
+				patch["federate_destination"] = d
 			}
 			hasPetName := cmd.Flags().Changed("pet-name")
 			if hasPetName {
@@ -1121,7 +1248,8 @@ func settingsSet() *cobra.Command {
 	cmd.Flags().StringVar(&digestAway, "email-ping-digest-if-away", "", "on|off - send the digest only after more than 2 days away")
 	cmd.Flags().StringVar(&petDisabled, "pet-disabled", "", "on|off - hide your pet")
 	cmd.Flags().StringVar(&hideBubbles, "hide-bubbles", "", "on|off - hide bubbled posts from main feed")
-	cmd.Flags().StringVar(&fed, "federate", "", "on|off - send main feed to Fediverse")
+	cmd.Flags().StringVar(&fed, "federate", "", "on|off - share main feed + own wall to Fediverse")
+	cmd.Flags().StringVar(&federateDest, "federate-destination", "", "cs3|mastodon - where sharing goes when on")
 	cmd.Flags().StringVar(&petName, "pet-name", "", "companion name (max 24)")
 	cmd.Flags().StringVar(&username, "username", "", "new username (max 3 lifetime changes; prompts for password)")
 	cmd.Flags().StringVar(&password, "password", "", "current password (optional with --username; otherwise prompted)")
@@ -1208,6 +1336,9 @@ func settingsInteractive(ctx context.Context) error {
 	ui.Println("14) Change username (max 3 times)")
 	ui.Println("15) Toggle digest only if away more than 2 days")
 	ui.Println("16) Toggle disable pet")
+	ui.Println("17) Fediverse destination (cs3|mastodon)")
+	ui.Println("18) Connect Mastodon")
+	ui.Println("19) Disconnect Mastodon")
 	ui.Println("0) Back")
 	choice, err := ui.ReadLine("Choice: ")
 	if err != nil || choice == "" || choice == "0" {
@@ -1218,6 +1349,21 @@ func settingsInteractive(ctx context.Context) error {
 	}
 	if choice == "14" {
 		return setUsernameInteractive(ctx, c, u)
+	}
+	if choice == "17" {
+		return setFederateDestinationInteractive(ctx, c)
+	}
+	if choice == "18" {
+		return connectMastodonInteractive(ctx, c)
+	}
+	if choice == "19" {
+		u2, err := c.MastodonDisconnect(ctx)
+		if err != nil {
+			return formatErr(err)
+		}
+		ui.Println("Disconnected.")
+		printSettingsLoaded(ctx, c, u2)
+		return nil
 	}
 	patch := map[string]any{}
 	switch choice {
@@ -1283,6 +1429,50 @@ func settingsInteractive(ctx context.Context) error {
 	}
 	ui.Println("Saved.")
 	printSettingsLoaded(ctx, c, u2)
+	return nil
+}
+
+func setFederateDestinationInteractive(ctx context.Context, c *api.Client) error {
+	v, err := ui.ReadLine("Destination (cs3|mastodon): ")
+	if err != nil {
+		return err
+	}
+	d := strings.ToLower(strings.TrimSpace(v))
+	if d != "cs3" && d != "mastodon" {
+		return fmt.Errorf("destination must be cs3 or mastodon")
+	}
+	u2, warnings, err := c.UpdateSettings(ctx, map[string]any{"federate_destination": d})
+	if err != nil {
+		return formatErr(err)
+	}
+	for _, w := range warnings {
+		ui.Printf("Warning: %s\n", w)
+	}
+	ui.Println("Saved.")
+	printSettingsLoaded(ctx, c, u2)
+	return nil
+}
+
+func connectMastodonInteractive(ctx context.Context, c *api.Client) error {
+	host, err := ui.ReadLine("Mastodon server (e.g. mastodon.social): ")
+	if err != nil {
+		return err
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return fmt.Errorf("host is required")
+	}
+	username, err := ui.ReadLine("Username on that server (optional): ")
+	if err != nil {
+		return err
+	}
+	url, err := c.MastodonStart(ctx, host, username)
+	if err != nil {
+		return formatErr(err)
+	}
+	ui.Println("Open this URL in a browser, authorize, then run: cs3 settings federate finish --code …")
+	ui.Println("(the browser page shows the finish code)")
+	ui.Println(url)
 	return nil
 }
 
@@ -1654,7 +1844,7 @@ func printSettings(u api.User, pet *api.Pet, petErr error) {
 	ui.Printf("  comment reply pings:   %s\n", onOff(u.AllowCommentReplyPings))
 	ui.Printf("  email ping digest:     %s\n", onOff(u.EmailPingDigest))
 	ui.Printf("  digest if away:        %s\n", onOff(u.EmailPingDigestIfAway))
-	ui.Printf("  federate global:       %s\n", onOff(u.FederateGlobal))
+	printFederate(u)
 	ui.Printf("  pet name:              %s\n", formatPetName(pet, petErr))
 	ui.Printf("  pet disabled:          %s\n", onOff(u.PetDisabled))
 	if petErr != nil {
