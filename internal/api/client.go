@@ -86,6 +86,7 @@ type User struct {
 	HideBubbledPosts         bool             `json:"hide_bubbled_posts"`
 	FederateGlobal           bool             `json:"federate_global"`
 	FederateDestination      string           `json:"federate_destination"`
+	FederateComments         bool             `json:"federate_comments"`
 	Mastodon                 *MastodonAccount `json:"mastodon"`
 	UsernameChangeCount      int              `json:"username_change_count"`
 	UsernameChangesRemaining int              `json:"username_changes_remaining"`

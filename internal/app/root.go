@@ -1034,6 +1034,7 @@ func printFederate(u api.User) {
 		dest = "cs3"
 	}
 	ui.Printf("  destination:           %s\n", dest)
+	ui.Printf("  federate comments:     %s\n", onOff(u.FederateComments))
 	if u.Mastodon != nil && u.Mastodon.Host != "" && u.Mastodon.Username != "" {
 		ui.Printf("  mastodon:              @%s@%s\n", u.Mastodon.Username, u.Mastodon.Host)
 	} else {
@@ -1062,10 +1063,10 @@ func settingsGet() *cobra.Command {
 
 func settingsSet() *cobra.Command {
 	var (
-		theme, font, timezone, petName, username, password, federateDest                                                                 string
-		sound, profilePosts, blockInvites, pings, postCommentPings, commentReplyPings, digest, digestAway, hideBubbles, fed, petDisabled string
-		offlineOn, offlineLimit, offlineThreads                                                                                          string
-		offlineClear                                                                                                                     bool
+		theme, font, timezone, petName, username, password, federateDest                                                                                   string
+		sound, profilePosts, blockInvites, pings, postCommentPings, commentReplyPings, digest, digestAway, hideBubbles, fed, fedComments, petDisabled string
+		offlineOn, offlineLimit, offlineThreads                                                                                                            string
+		offlineClear                                                                                                                                       bool
 	)
 	cmd := &cobra.Command{
 		Use:   "set",
@@ -1093,6 +1094,7 @@ func settingsSet() *cobra.Command {
 				"pet_disabled":              &petDisabled,
 				"hide_bubbled_posts":        &hideBubbles,
 				"federate_global":           &fed,
+				"federate_comments":         &fedComments,
 			}
 			for k, ptr := range boolFields {
 				if *ptr == "" {
@@ -1248,8 +1250,9 @@ func settingsSet() *cobra.Command {
 	cmd.Flags().StringVar(&digestAway, "email-ping-digest-if-away", "", "on|off - send the digest only after more than 2 days away")
 	cmd.Flags().StringVar(&petDisabled, "pet-disabled", "", "on|off - hide your pet")
 	cmd.Flags().StringVar(&hideBubbles, "hide-bubbles", "", "on|off - hide bubbled posts from main feed")
-	cmd.Flags().StringVar(&fed, "federate", "", "on|off - share main feed + own wall to Fediverse")
+	cmd.Flags().StringVar(&fed, "federate", "", "on|off - share main feed + own wall posts to Fediverse")
 	cmd.Flags().StringVar(&federateDest, "federate-destination", "", "cs3|mastodon - where sharing goes when on")
+	cmd.Flags().StringVar(&fedComments, "federate-comments", "", "on|off - also share comments (requires federate on)")
 	cmd.Flags().StringVar(&petName, "pet-name", "", "companion name (max 24)")
 	cmd.Flags().StringVar(&username, "username", "", "new username (max 3 lifetime changes; prompts for password)")
 	cmd.Flags().StringVar(&password, "password", "", "current password (optional with --username; otherwise prompted)")
@@ -1339,6 +1342,7 @@ func settingsInteractive(ctx context.Context) error {
 	ui.Println("17) Fediverse destination (cs3|mastodon)")
 	ui.Println("18) Connect Mastodon")
 	ui.Println("19) Disconnect Mastodon")
+	ui.Println("20) Toggle also share comments")
 	ui.Println("0) Back")
 	choice, err := ui.ReadLine("Choice: ")
 	if err != nil || choice == "" || choice == "0" {
@@ -1417,6 +1421,8 @@ func settingsInteractive(ctx context.Context) error {
 		patch["email_ping_digest_if_away"] = !u.EmailPingDigestIfAway
 	case "16":
 		patch["pet_disabled"] = !u.PetDisabled
+	case "20":
+		patch["federate_comments"] = !u.FederateComments
 	default:
 		return fmt.Errorf("unknown choice")
 	}
