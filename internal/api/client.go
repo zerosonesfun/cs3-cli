@@ -143,10 +143,25 @@ type WritingPromptResponse struct {
 }
 
 type Click struct {
-	Slug        string `json:"slug"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	IsMember    bool   `json:"is_member,omitempty"`
+	Slug         string `json:"slug"`
+	Name         string `json:"name"`
+	Description  string `json:"description,omitempty"`
+	IsMember     bool   `json:"is_member,omitempty"`
+	IsModerator  bool   `json:"is_moderator,omitempty"`
+	JoinPending  bool   `json:"join_pending,omitempty"`
+	IsKicked     bool   `json:"is_kicked,omitempty"`
+}
+
+type ClickJoinRequest struct {
+	ID        int    `json:"id"`
+	Username  string `json:"username"`
+	CreatedAt string `json:"created_at"`
+}
+
+type ClickMember struct {
+	Username    string `json:"username"`
+	IsModerator bool   `json:"is_moderator"`
+	IsCreator   bool   `json:"is_creator"`
 }
 
 type SearchUser struct {
@@ -1065,6 +1080,178 @@ func (c *Client) MyClicks(ctx context.Context) ([]Click, error) {
 		return nil, &APIError{Status: 400, Message: resp.Error}
 	}
 	return resp.Clicks, nil
+}
+
+func (c *Client) ListClicks(ctx context.Context, page int) ([]Click, bool, error) {
+	if page < 1 {
+		page = 1
+	}
+	var resp struct {
+		OK      bool    `json:"ok"`
+		Error   string  `json:"error"`
+		Clicks  []Click `json:"clicks"`
+		HasMore bool    `json:"has_more"`
+	}
+	path := fmt.Sprintf("/api/v1/clicks?page=%d", page)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, true, &resp); err != nil {
+		return nil, false, err
+	}
+	if !resp.OK {
+		return nil, false, &APIError{Status: 400, Message: resp.Error}
+	}
+	return resp.Clicks, resp.HasMore, nil
+}
+
+func (c *Client) RequestClickJoin(ctx context.Context, slug string) (already bool, err error) {
+	slug = strings.TrimSpace(slug)
+	if slug == "" || strings.ContainsAny(slug, "/\\?") {
+		return false, fmt.Errorf("invalid click slug")
+	}
+	var resp struct {
+		OK      bool   `json:"ok"`
+		Error   string `json:"error"`
+		Pending bool   `json:"pending"`
+		Already bool   `json:"already"`
+	}
+	path := "/api/v1/clicks/" + url.PathEscape(slug) + "/join-request"
+	if err := c.doMutateJSON(ctx, http.MethodPost, path, map[string]any{}, "", &resp); err != nil {
+		return false, err
+	}
+	if !resp.OK {
+		msg := resp.Error
+		if msg == "" {
+			msg = "could not send join request"
+		}
+		return false, &APIError{Status: 422, Message: msg}
+	}
+	return resp.Already, nil
+}
+
+func (c *Client) CancelClickJoin(ctx context.Context, slug string) error {
+	slug = strings.TrimSpace(slug)
+	if slug == "" || strings.ContainsAny(slug, "/\\?") {
+		return fmt.Errorf("invalid click slug")
+	}
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	path := "/api/v1/clicks/" + url.PathEscape(slug) + "/join-request/cancel"
+	if err := c.doMutateJSON(ctx, http.MethodPost, path, map[string]any{}, "", &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		msg := resp.Error
+		if msg == "" {
+			msg = "could not cancel join request"
+		}
+		return &APIError{Status: 422, Message: msg}
+	}
+	return nil
+}
+
+func (c *Client) ClickMembers(ctx context.Context, slug string) (members []ClickMember, requests []ClickJoinRequest, canModerate bool, err error) {
+	slug = strings.TrimSpace(slug)
+	if slug == "" || strings.ContainsAny(slug, "/\\?") {
+		return nil, nil, false, fmt.Errorf("invalid click slug")
+	}
+	var resp struct {
+		OK           bool            `json:"ok"`
+		Error        string          `json:"error"`
+		Members      []ClickMember   `json:"members"`
+		JoinRequests json.RawMessage `json:"join_requests"`
+	}
+	path := "/api/v1/clicks/" + url.PathEscape(slug) + "/members"
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, true, &resp); err != nil {
+		return nil, nil, false, err
+	}
+	if !resp.OK {
+		msg := resp.Error
+		if msg == "" {
+			msg = "could not load members"
+		}
+		return nil, nil, false, &APIError{Status: 400, Message: msg}
+	}
+	canModerate = resp.JoinRequests != nil
+	if canModerate && len(resp.JoinRequests) > 0 && string(resp.JoinRequests) != "null" {
+		if err := json.Unmarshal(resp.JoinRequests, &requests); err != nil {
+			return nil, nil, false, err
+		}
+	}
+	return resp.Members, requests, canModerate, nil
+}
+
+func (c *Client) AllowJoinRequest(ctx context.Context, id int) error {
+	if id < 1 {
+		return fmt.Errorf("invalid join request id")
+	}
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	path := fmt.Sprintf("/api/v1/join-requests/%d/allow", id)
+	if err := c.doMutateJSON(ctx, http.MethodPost, path, map[string]any{}, "", &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		msg := resp.Error
+		if msg == "" {
+			msg = "could not allow request"
+		}
+		return &APIError{Status: 422, Message: msg}
+	}
+	return nil
+}
+
+func (c *Client) RejectJoinRequest(ctx context.Context, id int, reason string) error {
+	if id < 1 {
+		return fmt.Errorf("invalid join request id")
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return fmt.Errorf("a reason is required")
+	}
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	path := fmt.Sprintf("/api/v1/join-requests/%d/reject", id)
+	if err := c.doMutateJSON(ctx, http.MethodPost, path, map[string]any{"reason": reason}, "", &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		msg := resp.Error
+		if msg == "" {
+			msg = "could not reject request"
+		}
+		return &APIError{Status: 422, Message: msg}
+	}
+	return nil
+}
+
+func (c *Client) AllowAllJoinRequests(ctx context.Context, slug string) (allowed, skipped int, err error) {
+	slug = strings.TrimSpace(slug)
+	if slug == "" || strings.ContainsAny(slug, "/\\?") {
+		return 0, 0, fmt.Errorf("invalid click slug")
+	}
+	var resp struct {
+		OK      bool   `json:"ok"`
+		Error   string `json:"error"`
+		Allowed int    `json:"allowed"`
+		Skipped int    `json:"skipped"`
+	}
+	path := "/api/v1/clicks/" + url.PathEscape(slug) + "/join-requests/allow-all"
+	if err := c.doMutateJSON(ctx, http.MethodPost, path, map[string]any{}, "", &resp); err != nil {
+		return 0, 0, err
+	}
+	if !resp.OK {
+		msg := resp.Error
+		if msg == "" {
+			msg = "could not approve join requests"
+		}
+		return 0, 0, &APIError{Status: 422, Message: msg}
+	}
+	return resp.Allowed, resp.Skipped, nil
 }
 
 func (c *Client) doMutateJSON(ctx context.Context, method, path string, body any, idempotencyKey string, out any) error {

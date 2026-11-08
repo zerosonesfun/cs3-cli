@@ -15,9 +15,18 @@ import (
 func cmdClick() *cobra.Command {
 	click := &cobra.Command{
 		Use:   "click",
-		Short: "Search Clicks you belong to, or edit a description you own",
+		Short: "Search Clicks, join requests, or edit a description you own",
 	}
-	click.AddCommand(cmdClickSearch(), cmdClickDescription())
+	click.AddCommand(
+		cmdClickSearch(),
+		cmdClickDescription(),
+		cmdClickRequest(),
+		cmdClickCancelRequest(),
+		cmdClickRequests(),
+		cmdClickAllow(),
+		cmdClickReject(),
+		cmdClickAllowAll(),
+	)
 	return click
 }
 
@@ -248,4 +257,292 @@ func parsePick(s string, max int) (int, error) {
 		return 0, fmt.Errorf("pick a number between 1 and %d", max)
 	}
 	return n, nil
+}
+
+func cmdClickRequest() *cobra.Command {
+	return &cobra.Command{
+		Use:   "request [slug]",
+		Short: "Request to join a Click",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			slug := ""
+			if len(args) > 0 {
+				slug = strings.TrimSpace(args[0])
+			}
+			return runClickRequest(cmd.Context(), slug)
+		},
+	}
+}
+
+func cmdClickCancelRequest() *cobra.Command {
+	return &cobra.Command{
+		Use:   "cancel-request [slug]",
+		Short: "Cancel your pending join request",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			slug := ""
+			if len(args) > 0 {
+				slug = strings.TrimSpace(args[0])
+			}
+			return runClickCancelRequest(cmd.Context(), slug)
+		},
+	}
+}
+
+func cmdClickRequests() *cobra.Command {
+	return &cobra.Command{
+		Use:   "requests [slug]",
+		Short: "List pending join requests (Click mods)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			slug := ""
+			if len(args) > 0 {
+				slug = strings.TrimSpace(args[0])
+			}
+			return runClickRequests(cmd.Context(), slug)
+		},
+	}
+}
+
+func cmdClickAllow() *cobra.Command {
+	return &cobra.Command{
+		Use:   "allow <request-id>",
+		Short: "Allow a pending join request (Click mod)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := strconv.Atoi(strings.TrimSpace(args[0]))
+			if err != nil || id < 1 {
+				return fmt.Errorf("usage: cs3 click allow <request-id>")
+			}
+			return runClickAllow(cmd.Context(), id)
+		},
+	}
+}
+
+func cmdClickReject() *cobra.Command {
+	var reason string
+	cmd := &cobra.Command{
+		Use:   "reject <request-id>",
+		Short: "Reject a pending join request (Click mod)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := strconv.Atoi(strings.TrimSpace(args[0]))
+			if err != nil || id < 1 {
+				return fmt.Errorf("usage: cs3 click reject <request-id>")
+			}
+			return runClickReject(cmd.Context(), id, reason)
+		},
+	}
+	cmd.Flags().StringVar(&reason, "reason", "", "Reject reason (required; prompted if omitted)")
+	return cmd
+}
+
+func cmdClickAllowAll() *cobra.Command {
+	return &cobra.Command{
+		Use:   "allow-all [slug]",
+		Short: "Approve all pending join requests for a Click (Click mod)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			slug := ""
+			if len(args) > 0 {
+				slug = strings.TrimSpace(args[0])
+			}
+			return runClickAllowAll(cmd.Context(), slug)
+		},
+	}
+}
+
+func pickDirectoryClickSlug(ctx context.Context, c *api.Client) (string, error) {
+	clicks, _, err := c.ListClicks(ctx, 1)
+	if err != nil {
+		return "", formatErr(err)
+	}
+	if len(clicks) == 0 {
+		return "", fmt.Errorf("no Clicks found")
+	}
+	for i, cl := range clicks {
+		status := ""
+		if cl.IsMember {
+			status = " (member)"
+		} else if cl.IsKicked {
+			status = " (invite required)"
+		} else if cl.JoinPending {
+			status = " (requested)"
+		}
+		ui.Printf("%2d. %s (/%s)%s\n", i+1, cl.Name, cl.Slug, status)
+	}
+	pick, err := ui.ReadLine("Click #: ")
+	if err != nil {
+		return "", err
+	}
+	n, err := parsePick(pick, len(clicks))
+	if err != nil {
+		return "", err
+	}
+	return clicks[n-1].Slug, nil
+}
+
+func runClickRequest(ctx context.Context, slug string) error {
+	c, err := client(true)
+	if err != nil {
+		return err
+	}
+	if slug == "" {
+		slug, err = pickDirectoryClickSlug(ctx, c)
+		if err != nil {
+			return err
+		}
+	}
+	already, err := c.RequestClickJoin(ctx, slug)
+	if err != nil {
+		return formatErr(err)
+	}
+	if already {
+		ui.Println("Your join request is already pending.")
+		return nil
+	}
+	ui.Println("Join request sent.")
+	return nil
+}
+
+func runClickCancelRequest(ctx context.Context, slug string) error {
+	c, err := client(true)
+	if err != nil {
+		return err
+	}
+	if slug == "" {
+		slug, err = pickDirectoryClickSlug(ctx, c)
+		if err != nil {
+			return err
+		}
+	}
+	ok, err := ui.Confirm("Cancel request")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		ui.Println("Cancelled.")
+		return nil
+	}
+	if err := c.CancelClickJoin(ctx, slug); err != nil {
+		return formatErr(err)
+	}
+	ui.Println("Join request cancelled.")
+	return nil
+}
+
+func runClickRequests(ctx context.Context, slug string) error {
+	c, err := client(true)
+	if err != nil {
+		return err
+	}
+	if slug == "" {
+		slug, err = pickClickSlug(ctx, c)
+		if err != nil {
+			return err
+		}
+	}
+	_, reqs, canModerate, err := c.ClickMembers(ctx, slug)
+	if err != nil {
+		return formatErr(err)
+	}
+	if !canModerate {
+		return fmt.Errorf("only Click moderators can list join requests")
+	}
+	if len(reqs) == 0 {
+		ui.Println("No pending join requests.")
+		return nil
+	}
+	ui.Printf("Pending join requests for /%s:\n", slug)
+	for _, r := range reqs {
+		ui.Printf("  %d  @%s  %s\n", r.ID, r.Username, r.CreatedAt)
+	}
+	ui.Println("Use: cs3 click allow <id> · cs3 click reject <id> · cs3 click allow-all")
+	return nil
+}
+
+func runClickAllow(ctx context.Context, id int) error {
+	c, err := client(true)
+	if err != nil {
+		return err
+	}
+	ok, err := ui.Confirm("Allow this join request")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		ui.Println("Cancelled.")
+		return nil
+	}
+	if err := c.AllowJoinRequest(ctx, id); err != nil {
+		return formatErr(err)
+	}
+	ui.Println("Join request allowed.")
+	return nil
+}
+
+func runClickReject(ctx context.Context, id int, reason string) error {
+	c, err := client(true)
+	if err != nil {
+		return err
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason, err = ui.ReadLine("Reject reason: ")
+		if err != nil {
+			return err
+		}
+		reason = strings.TrimSpace(reason)
+	}
+	if reason == "" {
+		return fmt.Errorf("a reason is required")
+	}
+	ok, err := ui.Confirm("Reject this join request")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		ui.Println("Cancelled.")
+		return nil
+	}
+	if err := c.RejectJoinRequest(ctx, id, reason); err != nil {
+		return formatErr(err)
+	}
+	ui.Println("Join request rejected.")
+	return nil
+}
+
+func runClickAllowAll(ctx context.Context, slug string) error {
+	c, err := client(true)
+	if err != nil {
+		return err
+	}
+	if slug == "" {
+		slug, err = pickClickSlug(ctx, c)
+		if err != nil {
+			return err
+		}
+	}
+	ok, err := ui.Confirm("Approve all pending join requests")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		ui.Println("Cancelled.")
+		return nil
+	}
+	allowed, skipped, err := c.AllowAllJoinRequests(ctx, slug)
+	if err != nil {
+		return formatErr(err)
+	}
+	if skipped > 0 {
+		ui.Printf("Approved %d. Skipped %d.\n", allowed, skipped)
+		return nil
+	}
+	if allowed == 1 {
+		ui.Println("1 join request approved.")
+		return nil
+	}
+	ui.Printf("%d join requests approved.\n", allowed)
+	return nil
 }
