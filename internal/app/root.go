@@ -42,6 +42,7 @@ func NewRoot() *cobra.Command {
 		cmdQuote(),
 		cmdBits(),
 		cmdPings(),
+		cmdReport(),
 		cmdSearch(),
 		cmdClick(),
 		cmdSettings(),
@@ -312,6 +313,7 @@ func printMenuHelp() {
 	ui.Println()
 	ui.Println("Also: cs3 quote @username")
 	ui.Println("      cs3 bits [@user] · cs3 bits --months [--before=YYYY-MM]")
+	ui.Println("      cs3 report replies — moderator replies to your reports")
 	ui.Println("Log out ends this CLI session. Quit does not.")
 }
 
@@ -613,6 +615,20 @@ func cmdPings() *cobra.Command {
 	}
 }
 
+func cmdReport() *cobra.Command {
+	return &cobra.Command{
+		Use:   "report [replies]",
+		Short: "Report replies from moderators",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 || (len(args) == 1 && strings.EqualFold(args[0], "replies")) {
+				return showReportReplies(cmd.Context())
+			}
+			return fmt.Errorf("usage: cs3 report replies")
+		},
+	}
+}
+
 func isRelatedPing(p api.Ping) bool {
 	if strings.TrimSpace(p.PostID) == "" {
 		return false
@@ -820,6 +836,10 @@ func openPing(ctx context.Context, c *api.Client, pings []api.Ping, ping api.Pin
 				return false, err
 			}
 		}
+	case "report_replies":
+		if err := showReportReplies(ctx); err != nil {
+			return false, err
+		}
 	case "url":
 		if target.URL != "" {
 			ui.Printf("Polling Place is on the website: %s\n", target.URL)
@@ -830,6 +850,53 @@ func openPing(ctx context.Context, c *api.Client, pings []api.Ping, ping api.Pin
 		ui.Println("Ping cleared.")
 	}
 	return false, nil
+}
+
+func showReportReplies(ctx context.Context) error {
+	c, err := client(true)
+	if err != nil {
+		return err
+	}
+	page := 1
+	shown := 0
+	for {
+		replies, hasMore, err := c.ReportReplies(ctx, page)
+		if err != nil {
+			return formatErr(err)
+		}
+		if page == 1 && len(replies) == 0 {
+			ui.Println("No report replies yet.")
+			return nil
+		}
+		for _, r := range replies {
+			shown++
+			about := "a report"
+			if strings.TrimSpace(r.ReportedUsername) != "" {
+				about = "@" + r.ReportedUsername
+			}
+			ui.Printf("\n%d) About %s · %s\n", shown, about, r.CreatedAt)
+			reason := strings.TrimSpace(r.ReportReason)
+			if reason != "" {
+				runes := []rune(reason)
+				if len(runes) > 120 {
+					reason = string(runes[:117]) + "…"
+				}
+				ui.Printf("Your report: %s\n", reason)
+			}
+			ui.Println(r.Body)
+		}
+		if !hasMore {
+			return nil
+		}
+		ok, err := ui.Confirm("Load more?")
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+		page++
+	}
 }
 
 func showPastPings(ctx context.Context) error {
@@ -1728,6 +1795,7 @@ func runMenu(ctx context.Context) error {
 		ui.Println("7) Search")
 		ui.Println("8) Settings")
 		ui.Println("9) Log out")
+		ui.Println("10) Report replies")
 		ui.Println("0) Quit")
 		choice, err := ui.ReadLine("> ")
 		if err != nil || choice == "0" || choice == "q" || choice == "quit" {
@@ -1772,6 +1840,8 @@ func runMenu(ctx context.Context) error {
 				clearLocalSession()
 				loggedIn = false
 				ui.Println("Logged out.")
+			case "10":
+				runErr = showReportReplies(ctx)
 			default:
 				ui.Println("Unknown choice.")
 			}

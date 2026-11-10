@@ -204,6 +204,15 @@ type PingTarget struct {
 	URL       string `json:"url"`
 }
 
+type ReportReply struct {
+	ID                int64  `json:"id"`
+	Body              string `json:"body"`
+	CreatedAt         string `json:"created_at"`
+	ReportID          int64  `json:"report_id"`
+	ReportReason      string `json:"report_reason"`
+	ReportedUsername  string `json:"reported_username"`
+}
+
 type APIError struct {
 	Status  int
 	Message string
@@ -849,6 +858,26 @@ func (c *Client) PingGo(ctx context.Context, id int64, dismissRelated bool) (Pin
 		return PingTarget{}, &APIError{Status: 400, Message: resp.Error}
 	}
 	return resp.Target, nil
+}
+
+func (c *Client) ReportReplies(ctx context.Context, page int) ([]ReportReply, bool, error) {
+	if page < 1 {
+		page = 1
+	}
+	var resp struct {
+		OK      bool          `json:"ok"`
+		Error   string        `json:"error"`
+		Replies []ReportReply `json:"replies"`
+		HasMore bool          `json:"has_more"`
+	}
+	path := fmt.Sprintf("/api/v1/report-replies?page=%d", page)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, true, &resp); err != nil {
+		return nil, false, err
+	}
+	if !resp.OK {
+		return nil, false, &APIError{Status: 400, Message: resp.Error}
+	}
+	return resp.Replies, resp.HasMore, nil
 }
 
 func ValidateThoughtBody(body string) error {
