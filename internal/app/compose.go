@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/zerosonesfun/cs3-cli/internal/api"
+	"github.com/zerosonesfun/cs3-cli/internal/offline"
 	"github.com/zerosonesfun/cs3-cli/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -382,6 +383,7 @@ func deletePost(ctx context.Context, id string, confirm bool) error {
 	if err := c.DeletePost(ctx, id, "", key); err != nil {
 		return formatErr(err)
 	}
+	offline.RemoveFromFeed(localUsername(), id)
 	ui.Println("Deleted.")
 	return nil
 }

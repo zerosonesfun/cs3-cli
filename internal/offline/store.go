@@ -181,6 +181,27 @@ func StoreThread(username string, post api.Post, comments []api.Comment) {
 	touchSaved(username)
 }
 
+// RemoveFromFeed clears the feed flag for a soft-deleted / removed post.
+func RemoveFromFeed(username, id string) {
+	mu.Lock()
+	defer mu.Unlock()
+	id = strings.TrimSpace(id)
+	if username == "" || id == "" {
+		return
+	}
+	index := readIndex(username)
+	for i := range index.Posts {
+		if index.Posts[i].ID == id {
+			if !index.Posts[i].Feed {
+				return
+			}
+			index.Posts[i].Feed = false
+			_ = writeIndex(username, index)
+			return
+		}
+	}
+}
+
 func storedFeedCount(username string) int {
 	mu.Lock()
 	defer mu.Unlock()
@@ -211,9 +232,13 @@ func LoadFeed(username string) (FeedPage, bool) {
 	out := FeedPage{SavedAt: savedAt(index)}
 	for _, row := range rows {
 		post, ok := readPost(username, row.ID)
-		if ok {
-			out.Posts = append(out.Posts, post)
+		if !ok {
+			continue
 		}
+		if post.Status != "" && post.Status != "visible" {
+			continue
+		}
+		out.Posts = append(out.Posts, post)
 	}
 	return out, len(out.Posts) > 0
 }
@@ -258,6 +283,9 @@ func storePost(username string, post api.Post, feed bool, prefs Prefs) bool {
 		if existing.ID == post.ID && existing.Feed {
 			info.Feed = true
 		}
+	}
+	if post.Status != "" && post.Status != "visible" {
+		info.Feed = false
 	}
 	before := cloneIndex(index)
 	if !makeRoom(&index, bytes, &info, nil, prefs.LimitMB*1024*1024, prefs.KeepThreads) {

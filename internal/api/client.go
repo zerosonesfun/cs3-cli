@@ -213,6 +213,11 @@ type ReportReply struct {
 	ReportedUsername  string `json:"reported_username"`
 }
 
+type BlockedUser struct {
+	Username  string `json:"username"`
+	BlockedAt string `json:"blocked_at"`
+}
+
 type APIError struct {
 	Status  int
 	Message string
@@ -878,6 +883,64 @@ func (c *Client) ReportReplies(ctx context.Context, page int) ([]ReportReply, bo
 		return nil, false, &APIError{Status: 400, Message: resp.Error}
 	}
 	return resp.Replies, resp.HasMore, nil
+}
+
+func (c *Client) Blocks(ctx context.Context, page int) ([]BlockedUser, bool, error) {
+	if page < 1 {
+		page = 1
+	}
+	var resp struct {
+		OK      bool          `json:"ok"`
+		Error   string        `json:"error"`
+		Users   []BlockedUser `json:"users"`
+		HasMore bool          `json:"has_more"`
+	}
+	path := fmt.Sprintf("/api/v1/blocks?page=%d", page)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, true, &resp); err != nil {
+		return nil, false, err
+	}
+	if !resp.OK {
+		return nil, false, &APIError{Status: 400, Message: resp.Error}
+	}
+	return resp.Users, resp.HasMore, nil
+}
+
+func (c *Client) BlockUser(ctx context.Context, username string) error {
+	username = strings.TrimPrefix(strings.TrimSpace(username), "@")
+	if username == "" {
+		return fmt.Errorf("username is required")
+	}
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	path := fmt.Sprintf("/api/v1/users/%s/block", url.PathEscape(username))
+	if err := c.doMutateJSON(ctx, http.MethodPost, path, map[string]any{}, "", &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return &APIError{Status: 400, Message: resp.Error}
+	}
+	return nil
+}
+
+func (c *Client) UnblockUser(ctx context.Context, username string) error {
+	username = strings.TrimPrefix(strings.TrimSpace(username), "@")
+	if username == "" {
+		return fmt.Errorf("username is required")
+	}
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	path := fmt.Sprintf("/api/v1/users/%s/unblock", url.PathEscape(username))
+	if err := c.doMutateJSON(ctx, http.MethodPost, path, map[string]any{}, "", &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return &APIError{Status: 400, Message: resp.Error}
+	}
+	return nil
 }
 
 func ValidateThoughtBody(body string) error {

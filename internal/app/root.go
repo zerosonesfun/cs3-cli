@@ -43,6 +43,9 @@ func NewRoot() *cobra.Command {
 		cmdBits(),
 		cmdPings(),
 		cmdReport(),
+		cmdBlocks(),
+		cmdBlock(),
+		cmdUnblock(),
 		cmdSearch(),
 		cmdClick(),
 		cmdSettings(),
@@ -314,6 +317,7 @@ func printMenuHelp() {
 	ui.Println("Also: cs3 quote @username")
 	ui.Println("      cs3 bits [@user] · cs3 bits --months [--before=YYYY-MM]")
 	ui.Println("      cs3 report replies — moderator replies to your reports")
+	ui.Println("      cs3 blocks · cs3 block @user · cs3 unblock @user")
 	ui.Println("Log out ends this CLI session. Quit does not.")
 }
 
@@ -627,6 +631,108 @@ func cmdReport() *cobra.Command {
 			return fmt.Errorf("usage: cs3 report replies")
 		},
 	}
+}
+
+func cmdBlocks() *cobra.Command {
+	return &cobra.Command{
+		Use:   "blocks",
+		Short: "List users you have blocked",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return showBlocks(cmd.Context())
+		},
+	}
+}
+
+func cmdBlock() *cobra.Command {
+	return &cobra.Command{
+		Use:   "block @username",
+		Short: "Block a user",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return blockUser(cmd.Context(), args[0])
+		},
+	}
+}
+
+func cmdUnblock() *cobra.Command {
+	return &cobra.Command{
+		Use:   "unblock @username",
+		Short: "Unblock a user",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return unblockUser(cmd.Context(), args[0])
+		},
+	}
+}
+
+func showBlocks(ctx context.Context) error {
+	c, err := client(true)
+	if err != nil {
+		return err
+	}
+	page := 1
+	var all []api.BlockedUser
+	for {
+		users, hasMore, err := c.Blocks(ctx, page)
+		if err != nil {
+			return formatErr(err)
+		}
+		all = append(all, users...)
+		if !hasMore {
+			break
+		}
+		page++
+		if page > 1000 {
+			break
+		}
+	}
+	if len(all) == 0 {
+		ui.Println("You have not blocked anyone.")
+		return nil
+	}
+	ui.Printf("Blocked users (%d):\n", len(all))
+	for _, u := range all {
+		if u.BlockedAt != "" {
+			ui.Printf("  @%s · %s UTC\n", u.Username, u.BlockedAt)
+		} else {
+			ui.Printf("  @%s\n", u.Username)
+		}
+	}
+	ui.Println("Tip: cs3 unblock @username")
+	return nil
+}
+
+func blockUser(ctx context.Context, username string) error {
+	c, err := client(true)
+	if err != nil {
+		return err
+	}
+	username = strings.TrimPrefix(strings.TrimSpace(username), "@")
+	if username == "" {
+		return fmt.Errorf("username is required")
+	}
+	if err := c.BlockUser(ctx, username); err != nil {
+		return formatErr(err)
+	}
+	ui.Printf("Blocked @%s.\n", username)
+	return nil
+}
+
+func unblockUser(ctx context.Context, username string) error {
+	c, err := client(true)
+	if err != nil {
+		return err
+	}
+	username = strings.TrimPrefix(strings.TrimSpace(username), "@")
+	if username == "" {
+		return fmt.Errorf("username is required")
+	}
+	if err := c.UnblockUser(ctx, username); err != nil {
+		return formatErr(err)
+	}
+	ui.Printf("Unblocked @%s.\n", username)
+	return nil
 }
 
 func isRelatedPing(p api.Ping) bool {
@@ -1413,6 +1519,7 @@ func settingsInteractive(ctx context.Context) error {
 	ui.Println("18) Connect Mastodon")
 	ui.Println("19) Disconnect Mastodon")
 	ui.Println("20) Toggle also share comments")
+	ui.Println("21) Blocked users")
 	ui.Println("0) Back")
 	choice, err := ui.ReadLine("Choice: ")
 	if err != nil || choice == "" || choice == "0" {
@@ -1438,6 +1545,9 @@ func settingsInteractive(ctx context.Context) error {
 		ui.Println("Disconnected.")
 		printSettingsLoaded(ctx, c, u2)
 		return nil
+	}
+	if choice == "21" {
+		return blockedUsersInteractive(ctx)
 	}
 	patch := map[string]any{}
 	switch choice {
@@ -1527,6 +1637,21 @@ func setFederateDestinationInteractive(ctx context.Context, c *api.Client) error
 	ui.Println("Saved.")
 	printSettingsLoaded(ctx, c, u2)
 	return nil
+}
+
+func blockedUsersInteractive(ctx context.Context) error {
+	if err := showBlocks(ctx); err != nil {
+		return err
+	}
+	line, err := ui.ReadLine("Unblock @username (blank = back): ")
+	if err != nil {
+		return err
+	}
+	line = strings.TrimSpace(line)
+	if line == "" || isBackCmd(line) {
+		return nil
+	}
+	return unblockUser(ctx, line)
 }
 
 func connectMastodonInteractive(ctx context.Context, c *api.Client) error {
