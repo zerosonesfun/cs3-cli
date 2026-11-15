@@ -15,9 +15,10 @@ import (
 func cmdClick() *cobra.Command {
 	click := &cobra.Command{
 		Use:   "click",
-		Short: "Search Clicks, join requests, or edit a description you own",
+		Short: "Create Clicks, search, join requests, or edit a description you own",
 	}
 	click.AddCommand(
+		cmdClickCreate(),
 		cmdClickSearch(),
 		cmdClickDescription(),
 		cmdClickRequest(),
@@ -28,6 +29,60 @@ func cmdClick() *cobra.Command {
 		cmdClickAllowAll(),
 	)
 	return click
+}
+
+func cmdClickCreate() *cobra.Command {
+	return &cobra.Command{
+		Use:   "create [name]",
+		Short: "Create a Click",
+		Long: `Create a Click. Names are unique (letter case does not matter).
+
+If name is omitted, you are prompted. Then type an optional description and end with a line containing only .
+An empty description leaves it blank (you can set it later with cs3 click description --set).
+
+Examples:
+  cs3 click create
+  cs3 click create "Night writers"`,
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := strings.TrimSpace(strings.Join(args, " "))
+			return runClickCreate(cmd.Context(), name)
+		},
+	}
+}
+
+func runClickCreate(ctx context.Context, name string) error {
+	c, err := client(true)
+	if err != nil {
+		return err
+	}
+	if name == "" {
+		name, err = ui.ReadLine("Click name: ")
+		if err != nil {
+			return err
+		}
+		name = strings.TrimSpace(name)
+	}
+	if name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if utf8.RuneCountInString(name) > 80 {
+		return fmt.Errorf("name is too long (max 80 characters)")
+	}
+	ui.Println("Description (end with a line containing only .). An empty description is fine.")
+	description, err := ui.ReadMultiline(".")
+	if err != nil {
+		return err
+	}
+	click, err := c.CreateClick(ctx, name, description)
+	if err != nil {
+		return formatErr(err)
+	}
+	ui.Printf("Created Click %s (/%s).\n", click.Name, click.Slug)
+	if click.Description != "" {
+		ui.Println(click.Description)
+	}
+	return nil
 }
 
 func cmdClickSearch() *cobra.Command {

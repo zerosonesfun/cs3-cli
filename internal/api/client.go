@@ -542,6 +542,42 @@ func normalizeClickDescription(description string) string {
 	return description
 }
 
+func (c *Client) CreateClick(ctx context.Context, name, description string) (Click, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Click{}, fmt.Errorf("name is required")
+	}
+	if utf8.RuneCountInString(name) > 80 {
+		return Click{}, fmt.Errorf("name is too long (max 80 characters)")
+	}
+	description = normalizeClickDescription(description)
+	if utf8.RuneCountInString(description) > 500 {
+		return Click{}, fmt.Errorf("description is too long (max 500 characters)")
+	}
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+		Click Click  `json:"click"`
+	}
+	if err := c.doMutateJSON(ctx, http.MethodPost, "/api/v1/clicks", map[string]any{
+		"name":        name,
+		"description": description,
+	}, "", &resp); err != nil {
+		return Click{}, err
+	}
+	if !resp.OK {
+		msg := resp.Error
+		if msg == "" {
+			msg = "could not create Click"
+		}
+		return Click{}, &APIError{Status: 422, Message: msg}
+	}
+	if strings.TrimSpace(resp.Click.Slug) == "" {
+		return Click{}, fmt.Errorf("create succeeded but Click slug was missing")
+	}
+	return resp.Click, nil
+}
+
 func (c *Client) UpdateClickDescription(ctx context.Context, slug, description string) (Click, error) {
 	slug = strings.TrimSpace(slug)
 	if slug == "" || strings.ContainsAny(slug, "/\\?") {
@@ -1372,6 +1408,18 @@ func (c *Client) doMutateJSON(ctx context.Context, method, path string, body any
 		}
 	}
 	return lastErr
+}
+
+// doMutateJSONNoRetry sends one mutate (still with Idempotency-Key). Use for chat sends.
+func (c *Client) doMutateJSONNoRetry(ctx context.Context, method, path string, body any, idempotencyKey string, out any) error {
+	if idempotencyKey == "" {
+		idempotencyKey = NewIdempotencyKey()
+	}
+	headers := map[string]string{
+		"X-CS3-Client":    "cli",
+		"Idempotency-Key": idempotencyKey,
+	}
+	return c.doJSONWithHeaders(ctx, method, path, body, true, headers, out)
 }
 
 func shouldRetryMutate(err error) bool {

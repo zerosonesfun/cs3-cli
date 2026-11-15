@@ -43,6 +43,7 @@ func NewRoot() *cobra.Command {
 		cmdBits(),
 		cmdPings(),
 		cmdReport(),
+		cmdChat(),
 		cmdBlocks(),
 		cmdBlock(),
 		cmdUnblock(),
@@ -317,6 +318,7 @@ func printMenuHelp() {
 	ui.Println("Also: cs3 quote @username")
 	ui.Println("      cs3 bits [@user] · cs3 bits --months [--before=YYYY-MM]")
 	ui.Println("      cs3 report replies — moderator replies to your reports")
+	ui.Println("      cs3 chat — scheduled chatroom when a session is live")
 	ui.Println("      cs3 blocks · cs3 block @user · cs3 unblock @user")
 	ui.Println("Log out ends this CLI session. Quit does not.")
 }
@@ -1921,6 +1923,7 @@ func runMenu(ctx context.Context) error {
 		ui.Println("8) Settings")
 		ui.Println("9) Log out")
 		ui.Println("10) Report replies")
+		ui.Println("11) Chat")
 		ui.Println("0) Quit")
 		choice, err := ui.ReadLine("> ")
 		if err != nil || choice == "0" || choice == "q" || choice == "quit" {
@@ -1967,6 +1970,8 @@ func runMenu(ctx context.Context) error {
 				ui.Println("Logged out.")
 			case "10":
 				runErr = showReportReplies(ctx)
+			case "11":
+				runErr = runChat(ctx)
 			default:
 				ui.Println("Unknown choice.")
 			}
