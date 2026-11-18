@@ -174,6 +174,21 @@ func StoreThread(username string, post api.Post, comments []api.Comment) {
 	if !storePost(username, post, false, prefs) {
 		return
 	}
+	keep := map[string]bool{}
+	for _, comment := range comments {
+		keep[comment.ID] = true
+	}
+	mu.Lock()
+	index := readIndex(username)
+	before := index
+	for _, row := range append([]indexComment(nil), index.Comments...) {
+		if row.PostID == post.ID && !keep[row.ID] {
+			dropComment(&index, row.ID)
+		}
+	}
+	apply(username, before, index)
+	_ = writeIndex(username, index)
+	mu.Unlock()
 	for _, comment := range comments {
 		storeComment(username, comment, post.ID, prefs)
 	}
@@ -200,6 +215,21 @@ func RemoveFromFeed(username, id string) {
 			return
 		}
 	}
+}
+
+// RemovePost hard-wipes a post and its comments from offline storage.
+func RemovePost(username, id string) {
+	mu.Lock()
+	defer mu.Unlock()
+	id = strings.TrimSpace(id)
+	if username == "" || id == "" {
+		return
+	}
+	index := readIndex(username)
+	before := index
+	dropPost(&index, id)
+	apply(username, before, index)
+	_ = writeIndex(username, index)
 }
 
 func storedFeedCount(username string) int {

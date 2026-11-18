@@ -1146,32 +1146,33 @@ func (c *Client) UpdatePost(ctx context.Context, id, body string, bodyColor *str
 	return resp.Post, nil
 }
 
-func (c *Client) DeletePost(ctx context.Context, id, reason, idempotencyKey string) error {
+func (c *Client) DeletePost(ctx context.Context, id, reason, idempotencyKey string) (hardWiped bool, err error) {
 	id = strings.TrimSpace(id)
 	if id == "" || strings.ContainsAny(id, "/\\?") {
-		return fmt.Errorf("invalid post id")
+		return false, fmt.Errorf("invalid post id")
 	}
 	payload := map[string]any{}
 	if reason != "" {
 		payload["reason"] = reason
 	}
 	var resp struct {
-		OK    bool   `json:"ok"`
-		Error string `json:"error"`
+		OK        bool   `json:"ok"`
+		Error     string `json:"error"`
+		HardWiped bool   `json:"hard_wiped"`
 	}
 	path := "/api/v1/posts/" + url.PathEscape(id) + "/delete"
-	err := c.doMutateJSON(ctx, http.MethodPost, path, payload, idempotencyKey, &resp)
+	err = c.doMutateJSON(ctx, http.MethodPost, path, payload, idempotencyKey, &resp)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !resp.OK {
 		msg := resp.Error
 		if msg == "" {
 			msg = "could not delete post"
 		}
-		return &APIError{Status: 422, Message: msg}
+		return false, &APIError{Status: 422, Message: msg}
 	}
-	return nil
+	return resp.HardWiped, nil
 }
 
 func (c *Client) MyPosts(ctx context.Context, page int) (MyPostsPage, error) {

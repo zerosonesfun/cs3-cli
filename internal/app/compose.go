@@ -380,10 +380,16 @@ func deletePost(ctx context.Context, id string, confirm bool) error {
 		}
 	}
 	key := api.NewIdempotencyKey()
-	if err := c.DeletePost(ctx, id, "", key); err != nil {
+	hardWiped, err := c.DeletePost(ctx, id, "", key)
+	if err != nil {
 		return formatErr(err)
 	}
-	offline.RemoveFromFeed(localUsername(), id)
+	user := localUsername()
+	if hardWiped {
+		offline.RemovePost(user, id)
+	} else {
+		offline.RemoveFromFeed(user, id)
+	}
 	ui.Println("Deleted.")
 	return nil
 }
