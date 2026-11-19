@@ -213,6 +213,13 @@ type ReportReply struct {
 	ReportedUsername  string `json:"reported_username"`
 }
 
+type Reminder struct {
+	ID       int64  `json:"id"`
+	Excerpt  string `json:"excerpt"`
+	RemindAt string `json:"remind_at"`
+	PostID   string `json:"post_id"`
+}
+
 type BlockedUser struct {
 	Username  string `json:"username"`
 	BlockedAt string `json:"blocked_at"`
@@ -919,6 +926,41 @@ func (c *Client) ReportReplies(ctx context.Context, page int) ([]ReportReply, bo
 		return nil, false, &APIError{Status: 400, Message: resp.Error}
 	}
 	return resp.Replies, resp.HasMore, nil
+}
+
+func (c *Client) Reminders(ctx context.Context, page int) ([]Reminder, bool, error) {
+	if page < 1 {
+		page = 1
+	}
+	var resp struct {
+		OK        bool       `json:"ok"`
+		Error     string     `json:"error"`
+		Reminders []Reminder `json:"reminders"`
+		HasMore   bool       `json:"has_more"`
+	}
+	path := fmt.Sprintf("/api/v1/reminders?page=%d", page)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, true, &resp); err != nil {
+		return nil, false, err
+	}
+	if !resp.OK {
+		return nil, false, &APIError{Status: 400, Message: resp.Error}
+	}
+	return resp.Reminders, resp.HasMore, nil
+}
+
+func (c *Client) ReminderDelete(ctx context.Context, id int64) error {
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	path := fmt.Sprintf("/api/v1/reminders/%d/delete", id)
+	if err := c.doMutateJSON(ctx, http.MethodPost, path, map[string]any{}, "", &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return &APIError{Status: 400, Message: resp.Error}
+	}
+	return nil
 }
 
 func (c *Client) Blocks(ctx context.Context, page int) ([]BlockedUser, bool, error) {

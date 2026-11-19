@@ -42,6 +42,7 @@ func NewRoot() *cobra.Command {
 		cmdQuote(),
 		cmdBits(),
 		cmdPings(),
+		cmdReminders(),
 		cmdReport(),
 		cmdChat(),
 		cmdBlocks(),
@@ -302,8 +303,9 @@ func printMenuHelp() {
 	ui.Println("  b then . skips the comment. A lone . skips posting, then b.")
 	ui.Println()
 	ui.Println("Pings: type a ping number to open it (moves to Past).")
-	ui.Println("  cs3 pings past — opened archive; c clears all past.")
+	ui.Println("  cs3 pings past - opened archive; c clears all past.")
 	ui.Println("  Related comment and mention pings for the same post can be dismissed together.")
+	ui.Println("  cs3 reminders - upcoming highlight reminders; type a number to delete.")
 	ui.Println()
 	ui.Println("Thoughts: same . to finish, then confirm. Art and polls are read-only.")
 	ui.Println("Up to 3 links per thought or comment.")
@@ -317,8 +319,9 @@ func printMenuHelp() {
 	ui.Println()
 	ui.Println("Also: cs3 quote @username")
 	ui.Println("      cs3 bits [@user] · cs3 bits --months [--before=YYYY-MM]")
-	ui.Println("      cs3 report replies — moderator replies to your reports")
-	ui.Println("      cs3 chat — scheduled chatroom when a session is live")
+	ui.Println("      cs3 reminders - upcoming reminders (menu 12)")
+	ui.Println("      cs3 report replies - moderator replies to your reports")
+	ui.Println("      cs3 chat - scheduled chatroom when a session is live")
 	ui.Println("      cs3 blocks · cs3 block @user · cs3 unblock @user")
 	ui.Println("Log out ends this CLI session. Quit does not.")
 }
@@ -621,6 +624,17 @@ func cmdPings() *cobra.Command {
 	}
 }
 
+func cmdReminders() *cobra.Command {
+	return &cobra.Command{
+		Use:   "reminders",
+		Short: "List upcoming reminders; type a number to delete one",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return showReminders(cmd.Context())
+		},
+	}
+}
+
 func cmdReport() *cobra.Command {
 	return &cobra.Command{
 		Use:   "report [replies]",
@@ -791,12 +805,13 @@ func showPings(ctx context.Context) error {
 		if count == 0 || len(pings) == 0 {
 			ui.Println("No pings.")
 			ui.Println("Tip: type p for past, or: cs3 pings past")
+			ui.Println("Upcoming reminders: cs3 reminders")
 			if maxID > cfg.LastSeenPingID {
 				cfg.LastSeenPingID = maxID
 				_ = config.Save(cfg)
 			}
 			for {
-				choice, err := ui.ReadLine("p = past, b = back: ")
+				choice, err := ui.ReadLine("p = past, r = reminders, b = back: ")
 				if err != nil {
 					return err
 				}
@@ -810,7 +825,13 @@ func showPings(ctx context.Context) error {
 					}
 					break
 				}
-				ui.Println("Type p for past pings, or b to go back.")
+				if strings.EqualFold(choice, "r") || strings.EqualFold(choice, "reminders") {
+					if err := showReminders(ctx); err != nil {
+						return err
+					}
+					break
+				}
+				ui.Println("Type p for past, r for reminders, or b to go back.")
 			}
 			continue
 		}
@@ -834,7 +855,7 @@ func showPings(ctx context.Context) error {
 		}
 
 		for {
-			choice, err := ui.ReadLine("Ping # (p = past, b = back): ")
+			choice, err := ui.ReadLine("Ping # (p = past, r = reminders, b = back): ")
 			if err != nil {
 				return err
 			}
@@ -848,9 +869,15 @@ func showPings(ctx context.Context) error {
 				}
 				break
 			}
+			if strings.EqualFold(choice, "r") || strings.EqualFold(choice, "reminders") {
+				if err := showReminders(ctx); err != nil {
+					return err
+				}
+				break
+			}
 			n, err := strconv.Atoi(choice)
 			if err != nil || n < 1 || n > len(pings) {
-				ui.Printf("Pick a number between 1 and %d, p for past, or b to go back.\n", len(pings))
+				ui.Printf("Pick a number between 1 and %d, p for past, r for reminders, or b to go back.\n", len(pings))
 				continue
 			}
 			back, err := openPing(ctx, c, pings, pings[n-1])
@@ -1004,6 +1031,100 @@ func showReportReplies(ctx context.Context) error {
 			return nil
 		}
 		page++
+	}
+}
+
+func formatRemindAtLocal(utc string) string {
+	const layout = "2006-01-02 15:04:05"
+	when, err := time.ParseInLocation(layout, strings.TrimSpace(utc), time.UTC)
+	if err != nil {
+		when, err = time.ParseInLocation("2006-01-02 15:04", strings.TrimSpace(utc), time.UTC)
+		if err != nil {
+			return utc
+		}
+	}
+	return when.Local().Format("2006-01-02 15:04")
+}
+
+func showReminders(ctx context.Context) error {
+	c, err := client(true)
+	if err != nil {
+		return err
+	}
+	page := 1
+	var all []api.Reminder
+	for {
+		reminders, hasMore, err := c.Reminders(ctx, page)
+		if err != nil {
+			return formatErr(err)
+		}
+		if page == 1 && len(reminders) == 0 {
+			ui.Println("No upcoming reminders.")
+			return nil
+		}
+		all = append(all, reminders...)
+		for i, r := range reminders {
+			n := len(all) - len(reminders) + i + 1
+			ui.Printf("%d) %s\n   %s · post %s\n", n, r.Excerpt, formatRemindAtLocal(r.RemindAt), r.PostID)
+		}
+		if hasMore {
+			more, err := ui.Confirm("Load more")
+			if err != nil {
+				return err
+			}
+			if more {
+				page++
+				continue
+			}
+		}
+		break
+	}
+
+	for {
+		choice, err := ui.ReadLine("Reminder # to delete (b = back): ")
+		if err != nil {
+			return err
+		}
+		choice = strings.TrimSpace(choice)
+		if choice == "" || isBackCmd(choice) {
+			return nil
+		}
+		n, err := strconv.Atoi(choice)
+		if err != nil || n < 1 || n > len(all) {
+			ui.Printf("Pick a number between 1 and %d, or b to go back.\n", len(all))
+			continue
+		}
+		r := all[n-1]
+		ok, err := ui.Confirm("Delete this reminder?")
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		if err := c.ReminderDelete(ctx, r.ID); err != nil {
+			if isUnauthorized(err) {
+				return formatErr(err)
+			}
+			var ae *api.APIError
+			if errors.As(err, &ae) && ae.Status == 404 {
+				ui.Println("That reminder is no longer upcoming.")
+				all = append(all[:n-1], all[n:]...)
+			} else {
+				ui.Printf("Error: %v\n", formatErr(err))
+				continue
+			}
+		} else {
+			ui.Println("Reminder deleted.")
+			all = append(all[:n-1], all[n:]...)
+		}
+		if len(all) == 0 {
+			ui.Println("No upcoming reminders.")
+			return nil
+		}
+		for i, rem := range all {
+			ui.Printf("%d) %s\n   %s · post %s\n", i+1, rem.Excerpt, formatRemindAtLocal(rem.RemindAt), rem.PostID)
+		}
 	}
 }
 
@@ -1924,6 +2045,7 @@ func runMenu(ctx context.Context) error {
 		ui.Println("9) Log out")
 		ui.Println("10) Report replies")
 		ui.Println("11) Chat")
+		ui.Println("12) Upcoming reminders")
 		ui.Println("0) Quit")
 		choice, err := ui.ReadLine("> ")
 		if err != nil || choice == "0" || choice == "q" || choice == "quit" {
@@ -1972,6 +2094,8 @@ func runMenu(ctx context.Context) error {
 				runErr = showReportReplies(ctx)
 			case "11":
 				runErr = runChat(ctx)
+			case "12":
+				runErr = showReminders(ctx)
 			default:
 				ui.Println("Unknown choice.")
 			}

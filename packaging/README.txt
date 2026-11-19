@@ -106,6 +106,11 @@ cs3 pings past
   again, or c to delete all past after confirmation.
   Example: browse older pings, then clear the archive.
 
+cs3 reminders
+  Upcoming highlight reminders (soonest first), 20 per page with Load more.
+  Type a number to delete one after confirmation. Also menu item 12.
+  Example: cs3 reminders
+
 cs3 search
   Search posts, people, and Clicks (same as the website). Query must be
   at least 2 characters; omit the query to be prompted. After post hits,

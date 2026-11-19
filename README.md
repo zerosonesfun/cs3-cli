@@ -41,6 +41,7 @@ Site release zips: `make release` (output under `dist/`).
 - `cs3 wall` - your profile wall
 - `cs3 quote @user` - someone else's wall (when you see `"N` after their name)
 - `cs3 pings` / `cs3 pings past` - inbox and opened pings
+- `cs3 reminders` - upcoming highlight reminders; type a number to delete (menu **12**)
 - `cs3 chat` - scheduled chatroom when a session is live (menu **11**)
 - `cs3 search ...` - global search (posts, people, Clicks)
 - `cs3 click create [name]` - create a Click (names unique; optional description)
