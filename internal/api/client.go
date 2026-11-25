@@ -175,12 +175,13 @@ type MyPostsPage struct {
 }
 
 type Comment struct {
-	ID             string `json:"id"`
-	Username       string `json:"username"`
-	Body           string `json:"body"`
-	CreatedAt      string `json:"created_at"`
-	Status         string `json:"status"`
-	WallQuoteCount int    `json:"wall_quote_count"`
+	ID                 string `json:"id"`
+	Username           string `json:"username"`
+	Body               string `json:"body"`
+	CreatedAt          string `json:"created_at"`
+	Status             string `json:"status"`
+	WallQuoteCount     int    `json:"wall_quote_count"`
+	BlockedPlaceholder bool   `json:"blocked_placeholder"`
 }
 
 type Ping struct {
@@ -1253,24 +1254,47 @@ func (c *Client) MyClicks(ctx context.Context) ([]Click, error) {
 	return resp.Clicks, nil
 }
 
-func (c *Client) ListClicks(ctx context.Context, page int) ([]Click, bool, error) {
+// ListClicksPage is one directory section page (not_joined or joined).
+type ListClicksPage struct {
+	Clicks  []Click
+	Page    int
+	HasMore bool
+	HasPrev bool
+}
+
+func (c *Client) ListClicks(ctx context.Context, section string, page int) (ListClicksPage, error) {
 	if page < 1 {
 		page = 1
+	}
+	section = strings.TrimSpace(section)
+	if section != "not_joined" && section != "joined" {
+		return ListClicksPage{}, fmt.Errorf("section must be not_joined or joined")
 	}
 	var resp struct {
 		OK      bool    `json:"ok"`
 		Error   string  `json:"error"`
 		Clicks  []Click `json:"clicks"`
+		Page    int     `json:"page"`
 		HasMore bool    `json:"has_more"`
+		HasPrev bool    `json:"has_prev"`
 	}
-	path := fmt.Sprintf("/api/v1/clicks?page=%d", page)
+	path := fmt.Sprintf("/api/v1/clicks?section=%s&page=%d", url.QueryEscape(section), page)
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, true, &resp); err != nil {
-		return nil, false, err
+		return ListClicksPage{}, err
 	}
 	if !resp.OK {
-		return nil, false, &APIError{Status: 400, Message: resp.Error}
+		return ListClicksPage{}, &APIError{Status: 400, Message: resp.Error}
 	}
-	return resp.Clicks, resp.HasMore, nil
+	p := resp.Page
+	if p < 1 {
+		p = page
+	}
+	return ListClicksPage{
+		Clicks:  resp.Clicks,
+		Page:    p,
+		HasMore: resp.HasMore,
+		HasPrev: resp.HasPrev,
+	}, nil
 }
 
 func (c *Client) RequestClickJoin(ctx context.Context, slug string) (already bool, err error) {

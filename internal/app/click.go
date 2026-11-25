@@ -19,6 +19,7 @@ func cmdClick() *cobra.Command {
 	}
 	click.AddCommand(
 		cmdClickCreate(),
+		cmdClickList(),
 		cmdClickSearch(),
 		cmdClickDescription(),
 		cmdClickRequest(),
@@ -407,34 +408,112 @@ func cmdClickAllowAll() *cobra.Command {
 	}
 }
 
-func pickDirectoryClickSlug(ctx context.Context, c *api.Client) (string, error) {
-	clicks, _, err := c.ListClicks(ctx, 1)
-	if err != nil {
-		return "", formatErr(err)
+func printDirectoryClickLine(n int, cl api.Click) {
+	status := ""
+	if cl.IsMember {
+		status = " (member)"
+	} else if cl.IsKicked {
+		status = " (invite required)"
+	} else if cl.JoinPending {
+		status = " (requested)"
 	}
-	if len(clicks) == 0 {
-		return "", fmt.Errorf("no Clicks found")
+	ui.Printf("%2d. %s (/%s)%s\n", n, cl.Name, cl.Slug, status)
+}
+
+// loadDirectorySection prints title + rows. numberFrom is the first index to print;
+// the next unused index is returned as nextNum.
+func loadDirectorySection(
+	ctx context.Context,
+	c *api.Client,
+	section, title string,
+	numberFrom int,
+) (clicks []api.Click, nextNum int, err error) {
+	if numberFrom < 1 {
+		numberFrom = 1
 	}
-	for i, cl := range clicks {
-		status := ""
-		if cl.IsMember {
-			status = " (member)"
-		} else if cl.IsKicked {
-			status = " (invite required)"
-		} else if cl.JoinPending {
-			status = " (requested)"
+	page := 1
+	n := numberFrom
+	var all []api.Click
+	for {
+		res, err := c.ListClicks(ctx, section, page)
+		if err != nil {
+			return nil, numberFrom, formatErr(err)
 		}
-		ui.Printf("%2d. %s (/%s)%s\n", i+1, cl.Name, cl.Slug, status)
+		if page == 1 {
+			ui.Println(title)
+			if len(res.Clicks) == 0 {
+				ui.Println("  None.")
+				return all, n, nil
+			}
+		}
+		for _, cl := range res.Clicks {
+			all = append(all, cl)
+			printDirectoryClickLine(n, cl)
+			n++
+		}
+		if !res.HasMore {
+			break
+		}
+		more, err := ui.Confirm("Load more")
+		if err != nil {
+			return nil, n, err
+		}
+		if !more {
+			break
+		}
+		page++
+	}
+	return all, n, nil
+}
+
+func cmdClickList() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "Browse the Clicks directory (not joined, then joined)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runClickList(cmd.Context())
+		},
+	}
+}
+
+func runClickList(ctx context.Context) error {
+	c, err := client(true)
+	if err != nil {
+		return err
+	}
+	if _, _, err := loadDirectorySection(ctx, c, "not_joined", "Not Joined", 1); err != nil {
+		return err
+	}
+	ui.Println("")
+	if _, _, err := loadDirectorySection(ctx, c, "joined", "Joined", 1); err != nil {
+		return err
+	}
+	return nil
+}
+
+func pickDirectoryClickSlug(ctx context.Context, c *api.Client) (string, error) {
+	notJoined, next, err := loadDirectorySection(ctx, c, "not_joined", "Not Joined", 1)
+	if err != nil {
+		return "", err
+	}
+	ui.Println("")
+	joined, _, err := loadDirectorySection(ctx, c, "joined", "Joined", next)
+	if err != nil {
+		return "", err
+	}
+	all := append(append([]api.Click{}, notJoined...), joined...)
+	if len(all) == 0 {
+		return "", fmt.Errorf("no Clicks found")
 	}
 	pick, err := ui.ReadLine("Click #: ")
 	if err != nil {
 		return "", err
 	}
-	n, err := parsePick(pick, len(clicks))
+	n, err := parsePick(pick, len(all))
 	if err != nil {
 		return "", err
 	}
-	return clicks[n-1].Slug, nil
+	return all[n-1].Slug, nil
 }
 
 func runClickRequest(ctx context.Context, slug string) error {

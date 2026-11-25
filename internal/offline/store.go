@@ -351,6 +351,9 @@ func storeComment(username string, comment api.Comment, postID string, prefs Pre
 	if !hasPost(index, postID) {
 		return
 	}
+	if comment.BlockedPlaceholder {
+		comment.WallQuoteCount = 0
+	}
 	data, err := json.Marshal(comment)
 	if err != nil {
 		return
