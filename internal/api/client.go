@@ -151,6 +151,7 @@ type Click struct {
 	IsModerator  bool   `json:"is_moderator,omitempty"`
 	JoinPending  bool   `json:"join_pending,omitempty"`
 	IsKicked     bool   `json:"is_kicked,omitempty"`
+	IsHidden     bool   `json:"is_hidden,omitempty"`
 }
 
 type ClickJoinRequest struct {
@@ -551,7 +552,7 @@ func normalizeClickDescription(description string) string {
 	return description
 }
 
-func (c *Client) CreateClick(ctx context.Context, name, description string) (Click, error) {
+func (c *Client) CreateClick(ctx context.Context, name, description string, hidden bool) (Click, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Click{}, fmt.Errorf("name is required")
@@ -571,6 +572,7 @@ func (c *Client) CreateClick(ctx context.Context, name, description string) (Cli
 	if err := c.doMutateJSON(ctx, http.MethodPost, "/api/v1/clicks", map[string]any{
 		"name":        name,
 		"description": description,
+		"is_hidden":   hidden,
 	}, "", &resp); err != nil {
 		return Click{}, err
 	}
@@ -609,6 +611,30 @@ func (c *Client) UpdateClickDescription(ctx context.Context, slug, description s
 		msg := resp.Error
 		if msg == "" {
 			msg = "could not update description"
+		}
+		return Click{}, &APIError{Status: 400, Message: msg}
+	}
+	return resp.Click, nil
+}
+
+func (c *Client) UpdateClickVisibility(ctx context.Context, slug string, hidden bool) (Click, error) {
+	slug = strings.TrimSpace(slug)
+	if slug == "" || strings.ContainsAny(slug, "/\\?") {
+		return Click{}, fmt.Errorf("invalid click slug")
+	}
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+		Click Click  `json:"click"`
+	}
+	path := "/api/v1/clicks/" + url.PathEscape(slug) + "/visibility"
+	if err := c.doMutateJSON(ctx, http.MethodPost, path, map[string]any{"is_hidden": hidden}, "", &resp); err != nil {
+		return Click{}, err
+	}
+	if !resp.OK {
+		msg := resp.Error
+		if msg == "" {
+			msg = "could not update visibility"
 		}
 		return Click{}, &APIError{Status: 400, Message: msg}
 	}

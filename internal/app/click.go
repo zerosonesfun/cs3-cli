@@ -22,6 +22,7 @@ func cmdClick() *cobra.Command {
 		cmdClickList(),
 		cmdClickSearch(),
 		cmdClickDescription(),
+		cmdClickVisibility(),
 		cmdClickRequest(),
 		cmdClickCancelRequest(),
 		cmdClickRequests(),
@@ -33,26 +34,30 @@ func cmdClick() *cobra.Command {
 }
 
 func cmdClickCreate() *cobra.Command {
-	return &cobra.Command{
+	var hidden bool
+	cmd := &cobra.Command{
 		Use:   "create [name]",
 		Short: "Create a Click",
 		Long: `Create a Click. Names are unique (letter case does not matter).
 
 If name is omitted, you are prompted. Then type an optional description and end with a line containing only .
 An empty description leaves it blank (you can set it later with cs3 click description --set).
+Use --hidden to make the Click invisible to other users unless you invite them (or you are asked).
 
 Examples:
   cs3 click create
-  cs3 click create "Night writers"`,
+  cs3 click create "Night writers" --hidden`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := strings.TrimSpace(strings.Join(args, " "))
-			return runClickCreate(cmd.Context(), name)
+			return runClickCreate(cmd.Context(), name, hidden, cmd.Flags().Changed("hidden"))
 		},
 	}
+	cmd.Flags().BoolVar(&hidden, "hidden", false, "Make Click invisible to other users unless you invite them")
+	return cmd
 }
 
-func runClickCreate(ctx context.Context, name string) error {
+func runClickCreate(ctx context.Context, name string, hidden, hiddenSet bool) error {
 	c, err := client(true)
 	if err != nil {
 		return err
@@ -75,7 +80,13 @@ func runClickCreate(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	click, err := c.CreateClick(ctx, name, description)
+	if !hiddenSet {
+		hidden, err = ui.Confirm("Make Click invisible to other users unless I invite them?")
+		if err != nil {
+			return err
+		}
+	}
+	click, err := c.CreateClick(ctx, name, description, hidden)
 	if err != nil {
 		return formatErr(err)
 	}
@@ -282,6 +293,65 @@ func runClickDescription(ctx context.Context, slug string, set bool) error {
 		return nil
 	}
 	ui.Println("Description saved.")
+	return nil
+}
+
+func cmdClickVisibility() *cobra.Command {
+	var set string
+	cmd := &cobra.Command{
+		Use:   "visibility [slug]",
+		Short: "Show or change whether a Click is invisible to non-members",
+		Long: `Show whether a Click is invisible to other users unless you invite them.
+
+With --set on|off, change it. Only the Click owner can change it.
+
+Examples:
+  cs3 click visibility night-writers
+  cs3 click visibility night-writers --set on
+
+If slug is omitted, pick from your Clicks.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			slug := ""
+			if len(args) > 0 {
+				slug = strings.TrimSpace(args[0])
+			}
+			return runClickVisibility(cmd.Context(), slug, set)
+		},
+	}
+	cmd.Flags().StringVar(&set, "set", "", "on|off - make Click invisible to other users unless you invite them")
+	return cmd
+}
+
+func runClickVisibility(ctx context.Context, slug, set string) error {
+	c, err := client(true)
+	if err != nil {
+		return err
+	}
+	if slug == "" {
+		picked, err := pickClickSlug(ctx, c)
+		if err != nil {
+			return err
+		}
+		slug = picked
+	}
+	if set == "" {
+		click, _, _, _, err := c.Click(ctx, slug)
+		if err != nil {
+			return formatErr(err)
+		}
+		ui.Printf("invisible unless invited: %s\n", onOff(click.IsHidden))
+		return nil
+	}
+	hidden, err := parseOnOff(set)
+	if err != nil {
+		return fmt.Errorf("set: %w", err)
+	}
+	click, err := c.UpdateClickVisibility(ctx, slug, hidden)
+	if err != nil {
+		return formatErr(err)
+	}
+	ui.Printf("invisible unless invited: %s\n", onOff(click.IsHidden))
 	return nil
 }
 
