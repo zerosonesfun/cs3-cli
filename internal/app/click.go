@@ -468,18 +468,37 @@ func loadDirectorySection(
 
 func cmdClickList() *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
-		Short: "Browse the Clicks directory (not joined, then joined)",
+		Use:   "list [new|joined|not-joined]",
+		Short: "Browse the Clicks directory (no argument: not joined, then joined)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runClickList(cmd.Context())
+			which := ""
+			if len(args) > 0 {
+				which = strings.ToLower(strings.TrimSpace(args[0]))
+			}
+			return runClickList(cmd.Context(), which)
 		},
 	}
 }
 
-func runClickList(ctx context.Context) error {
+func runClickList(ctx context.Context, which string) error {
 	c, err := client(true)
 	if err != nil {
 		return err
+	}
+	switch which {
+	case "":
+	case "new":
+		_, _, err := loadDirectorySection(ctx, c, "new", "New", 1)
+		return err
+	case "joined":
+		_, _, err := loadDirectorySection(ctx, c, "joined", "Joined", 1)
+		return err
+	case "not-joined", "not_joined":
+		_, _, err := loadDirectorySection(ctx, c, "not_joined", "Not Joined", 1)
+		return err
+	default:
+		return fmt.Errorf("unknown list %q (use new, joined, or not-joined)", which)
 	}
 	if _, _, err := loadDirectorySection(ctx, c, "not_joined", "Not Joined", 1); err != nil {
 		return err

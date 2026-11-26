@@ -1254,7 +1254,7 @@ func (c *Client) MyClicks(ctx context.Context) ([]Click, error) {
 	return resp.Clicks, nil
 }
 
-// ListClicksPage is one directory section page (not_joined or joined).
+// ListClicksPage is one directory section page (not_joined, joined, or new).
 type ListClicksPage struct {
 	Clicks  []Click
 	Page    int
@@ -1267,8 +1267,8 @@ func (c *Client) ListClicks(ctx context.Context, section string, page int) (List
 		page = 1
 	}
 	section = strings.TrimSpace(section)
-	if section != "not_joined" && section != "joined" {
-		return ListClicksPage{}, fmt.Errorf("section must be not_joined or joined")
+	if section != "not_joined" && section != "joined" && section != "new" {
+		return ListClicksPage{}, fmt.Errorf("section must be not_joined, joined, or new")
 	}
 	var resp struct {
 		OK      bool    `json:"ok"`
