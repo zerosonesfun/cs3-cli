@@ -1363,7 +1363,7 @@ func settingsGet() *cobra.Command {
 func settingsSet() *cobra.Command {
 	var (
 		theme, font, timezone, petName, username, password, federateDest                                                                                   string
-		sound, profilePosts, blockInvites, pings, postCommentPings, commentReplyPings, digest, digestAway, hideBubbles, fed, fedComments, petDisabled string
+		sound, profilePosts, blockInvites, pings, postCommentPings, commentReplyPings, digest, digestAway, hideBubbles, hidePrompts, fed, fedComments, petDisabled string
 		offlineOn, offlineLimit, offlineThreads                                                                                                            string
 		offlineClear                                                                                                                                       bool
 	)
@@ -1392,6 +1392,7 @@ func settingsSet() *cobra.Command {
 				"email_ping_digest_if_away": &digestAway,
 				"pet_disabled":              &petDisabled,
 				"hide_bubbled_posts":        &hideBubbles,
+				"hide_prompts":              &hidePrompts,
 				"federate_global":           &fed,
 				"federate_comments":         &fedComments,
 			}
@@ -1549,6 +1550,7 @@ func settingsSet() *cobra.Command {
 	cmd.Flags().StringVar(&digestAway, "email-ping-digest-if-away", "", "on|off - send the digest only after more than 2 days away")
 	cmd.Flags().StringVar(&petDisabled, "pet-disabled", "", "on|off - hide your pet")
 	cmd.Flags().StringVar(&hideBubbles, "hide-bubbles", "", "on|off - hide bubbled posts from main feed")
+	cmd.Flags().StringVar(&hidePrompts, "hide-prompts", "", "on|off - turn off prompts and hide Prompt replies from main feed")
 	cmd.Flags().StringVar(&fed, "federate", "", "on|off - share main feed + own wall posts to Fediverse")
 	cmd.Flags().StringVar(&federateDest, "federate-destination", "", "cs3|mastodon - where sharing goes when on")
 	cmd.Flags().StringVar(&fedComments, "federate-comments", "", "on|off - also share comments (requires federate on)")
@@ -1643,6 +1645,7 @@ func settingsInteractive(ctx context.Context) error {
 	ui.Println("19) Disconnect Mastodon")
 	ui.Println("20) Toggle also share comments")
 	ui.Println("21) Blocked users")
+	ui.Println("22) Toggle turn off prompts")
 	ui.Println("0) Back")
 	choice, err := ui.ReadLine("Choice: ")
 	if err != nil || choice == "" || choice == "0" {
@@ -1726,6 +1729,8 @@ func settingsInteractive(ctx context.Context) error {
 		patch["pet_disabled"] = !u.PetDisabled
 	case "20":
 		patch["federate_comments"] = !u.FederateComments
+	case "22":
+		patch["hide_prompts"] = !u.HidePrompts
 	default:
 		return fmt.Errorf("unknown choice")
 	}
@@ -2164,6 +2169,7 @@ func printSettings(u api.User, pet *api.Pet, petErr error) {
 	ui.Println("Bubbled Posts:")
 	ui.Println("  (old posts that get bubbled to the top of the main feed once a day)")
 	ui.Printf("  hide bubbled posts:    %s\n", onOff(u.HideBubbledPosts))
+	ui.Printf("  prompts off:           %s\n", onOff(u.HidePrompts))
 	tz := u.Timezone
 	if tz == "" {
 		tz = "auto (" + api.LocalTimezone() + ")"
